@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image OSINT — Metadata Extractor</title>
+<style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+        background:#0a0a0f;
+        color:#ccc;
+        font-family:'Courier New', monospace;
+        min-height:100vh;
+    }
+
+    nav {
+        background:#0f0f1a;
+        border-bottom:1px solid #1a2a1a;
+        padding:0 32px;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        height:56px;
+    }
+    .brand { color:#00ff88; font-size:15px; letter-spacing:3px; font-weight:bold; text-decoration:none; }
+    .nav-links { display:flex; gap:4px; }
+    .nav-links a {
+        color:#555; text-decoration:none; font-size:11px;
+        letter-spacing:1px; padding:6px 14px; border-radius:4px;
+        text-transform:uppercase; transition:all 0.2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color:#00ff88; background:rgba(0,255,136,0.07); }
+
+    .page { max-width:600px; margin:0 auto; padding:60px 24px; }
+
+    .flash {
+        padding:12px 16px; border-radius:4px; font-size:12px;
+        margin-bottom:24px; letter-spacing:1px;
+        background:rgba(255,60,60,0.08); border:1px solid #ff3c3c; color:#ff3c3c;
+    }
+
+    .box {
+        background:#0f0f1a;
+        border:1px solid #1a2a1a;
+        border-radius:10px;
+        padding:40px;
+    }
+
+    h1 {
+        color:#00ff88;
+        font-size:22px;
+        letter-spacing:4px;
+        margin-bottom:8px;
+        text-align:center;
+    }
+
+    .sub {
+        color:#555;
+        font-size:11px;
+        letter-spacing:2px;
+        text-align:center;
+        margin-bottom:32px;
+        text-transform:uppercase;
+    }
+
+    .drop-zone {
+        border:2px dashed #1a2a1a;
+        border-radius:8px;
+        padding:32px 20px;
+        text-align:center;
+        margin-bottom:8px;
+        transition:border-color 0.2s;
+        cursor:pointer;
+    }
+    .drop-zone:hover, .drop-zone.dragover { border-color:#00ff88; background:rgba(0,255,136,0.03); }
+    .drop-zone-icon { font-size:32px; margin-bottom:10px; }
+    .drop-zone-text { font-size:12px; color:#888; letter-spacing:1px; }
+    .drop-zone-sub { font-size:10px; color:#555; margin-top:6px; }
+
+    input[type="file"] { display:none; }
+
+    .filename-display {
+        font-size:11px;
+        color:#00ff88;
+        text-align:center;
+        margin-top:10px;
+        min-height:16px;
+        letter-spacing:1px;
+        word-break:break-all;
+    }
+
+    button {
+        width:100%;
+        padding:14px;
+        margin-top:20px;
+        background:#00ff88;
+        border:none;
+        border-radius:6px;
+        color:#05080d;
+        font-weight:bold;
+        font-size:13px;
+        letter-spacing:3px;
+        cursor:pointer;
+        text-transform:uppercase;
+        font-family:inherit;
+        transition:opacity 0.2s;
+    }
+    button:hover { opacity:0.9; }
+    button:disabled { opacity:0.5; cursor:not-allowed; }
+
+    .footer {
+        text-align:center;
+        margin-top:20px;
+        font-size:10px;
+        color:#444;
+        letter-spacing:1px;
+    }
+
+    .info-list {
+        margin-top:24px;
+        padding-top:20px;
+        border-top:1px solid #1a2a1a;
+    }
+    .info-item {
+        font-size:11px;
+        color:#666;
+        padding:4px 0;
+        display:flex;
+        gap:8px;
+    }
+    .info-dot { color:#00ff88; }
+</style>
+</head>
+<body>
+
+<nav>
+    <a href="/" class="brand">⬡ OSINT</a>
+    <div class="nav-links">
+        <a href="/">Scanner</a>
+        <a href="/image-osint" class="active">Image OSINT</a>
+    </div>
+</nav>
+
+<div class="page">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+            <div class="flash">{{ msg }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="box">
+        <h1>📷 IMAGE OSINT</h1>
+        <div class="sub">EXIF Metadata Extractor</div>
+
+        <form method="POST" enctype="multipart/form-data" id="uploadForm">
+            <label class="drop-zone" id="dropZone" for="imageInput">
+                <div class="drop-zone-icon">⬆</div>
+                <div class="drop-zone-text">Click to browse or drag an image here</div>
+                <div class="drop-zone-sub">JPG · PNG · GIF · WEBP · TIFF · HEIC — Max 15MB</div>
+            </label>
+            <input type="file" name="image" id="imageInput"
+                   accept=".jpg,.jpeg,.png,.gif,.webp,.tiff,.bmp,.heic" required>
+            <div class="filename-display" id="filenameDisplay"></div>
+
+            <button type="submit" id="submitBtn">Analyze Image</button>
+        </form>
+
+        <div class="info-list">
+            <div class="info-item"><span class="info-dot">▸</span> Extracts EXIF, GPS, camera, and software metadata</div>
+            <div class="info-item"><span class="info-dot">▸</span> Files are deleted from the server after analysis</div>
+            <div class="info-item"><span class="info-dot">▸</span> Requires <code>exiftool</code> installed on the server</div>
+        </div>
+    </div>
+
+    <div class="footer">OSINT Platform Security Layer Enabled</div>
+</div>
+
+<script>
+    const input = document.getElementById('imageInput');
+    const display = document.getElementById('filenameDisplay');
+    const dropZone = document.getElementById('dropZone');
+    const form = document.getElementById('uploadForm');
+    const submitBtn = document.getElementById('submitBtn');
+
+    input.addEventListener('change', function() {
+        if (input.files.length > 0) {
+            display.textContent = '✓ ' + input.files[0].name;
+        } else {
+            display.textContent = '';
+        }
+    });
+
+    ['dragenter', 'dragover'].forEach(evt => {
+        dropZone.addEventListener(evt, function(e) {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+    });
+
+    ['dragleave', 'drop'].forEach(evt => {
+        dropZone.addEventListener(evt, function(e) {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+        });
+    });
+
+    dropZone.addEventListener('drop', function(e) {
+        if (e.dataTransfer.files.length > 0) {
+            input.files = e.dataTransfer.files;
+            display.textContent = '✓ ' + input.files[0].name;
+        }
+    });
+
+    form.addEventListener('submit', function() {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Analyzing...';
+    });
+</script>
+
+</body>
+</html>

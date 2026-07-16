@@ -1,0 +1,70 @@
+{% extends "admin_dashboard.html" %}
+{% block title %}New Case{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Create Case</h1>
+    <p class="subtle">Open a new investigation and optionally seed it with a target.</p>
+  </div>
+  <a href="{{ url_for('investigation.cases') }}" class="btn btn-ghost">← Back to Cases</a>
+</div>
+
+<form method="post" class="card form-card">
+  <label for="title">Case Title *</label>
+  <input type="text" id="title" name="title" required maxlength="200"
+         placeholder="e.g. Suspicious domain cluster - acme-corp phishing"
+         value="{{ form.title if form else '' }}">
+
+  <label for="description">Description</label>
+  <textarea id="description" name="description" rows="4"
+            placeholder="Summary of the investigation, scope, and objectives...">{{ form.description if form else '' }}</textarea>
+
+  <div class="form-row">
+    <div>
+      <label for="priority">Priority</label>
+      <select id="priority" name="priority">
+        {% for p in priorities %}
+          <option value="{{ p }}" {% if form and form.priority == p %}selected{% elif not form and p == 'medium' %}selected{% endif %}>{{ p|title }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="assigned_to">Assigned To</label>
+      <input type="text" id="assigned_to" name="assigned_to" placeholder="analyst username"
+             value="{{ form.assigned_to if form else '' }}">
+    </div>
+  </div>
+
+  <label for="tags">Tags <span class="hint">(comma-separated)</span></label>
+  <input type="text" id="tags" name="tags" placeholder="phishing, finance-sector, urgent"
+         value="{{ form.tags if form else '' }}">
+
+  <fieldset class="seed-fieldset">
+    <legend>Seed with a target (optional)</legend>
+    <div class="form-row">
+      <div>
+        <label for="seed_target">Target</label>
+        <input type="text" id="seed_target" name="seed_target" placeholder="domain.com / email / IP / username"
+               value="{{ form.seed_target if form else '' }}">
+      </div>
+      <div>
+        <label for="seed_scan_type">Scan Type</label>
+        <select id="seed_scan_type" name="seed_scan_type">
+          <option value="domain">Domain / URL</option>
+          <option value="email">Email</option>
+          <option value="phone">Phone</option>
+          <option value="username">Username</option>
+          <option value="image">Image OSINT</option>
+          <option value="manual">Manual / Other</option>
+        </select>
+      </div>
+    </div>
+  </fieldset>
+
+  <div class="form-actions">
+    <button type="submit" class="btn btn-primary">Create Case</button>
+    <a href="{{ url_for('investigation.cases') }}" class="btn btn-ghost">Cancel</a>
+  </div>
+</form>
+{% endblock %}

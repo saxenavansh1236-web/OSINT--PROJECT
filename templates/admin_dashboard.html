@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard — OSINT</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+        :root {
+            --bg:       #0a0a0f;
+            --surface:  #0f0f1a;
+            --border:   #1a2a1a;
+            --green:    #00ff88;
+            --red:      #ff3c3c;
+            --yellow:   #ffaa00;
+            --blue:     #4488ff;
+            --muted:    #555;
+            --text:     #ccc;
+        }
+
+        body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; min-height:100vh; }
+
+        /* NAV */
+        nav {
+            background:var(--surface);
+            border-bottom:1px solid var(--border);
+            padding:0 32px;
+            display:flex;
+            align-items:center;
+            justify-content:space-between;
+            height:56px;
+            position:sticky; top:0; z-index:100;
+        }
+        .brand { color:var(--green); font-size:15px; letter-spacing:3px; font-weight:bold; }
+        .nav-links { display:flex; gap:4px; }
+        .nav-links a {
+            color:var(--muted); text-decoration:none; font-size:11px;
+            letter-spacing:1px; padding:6px 14px; border-radius:4px;
+            transition:all 0.2s; text-transform:uppercase;
+        }
+        .nav-links a:hover, .nav-links a.active { color:var(--green); background:rgba(0,255,136,0.07); }
+        .nav-right { display:flex; align-items:center; gap:16px; font-size:11px; }
+        .role-badge {
+            padding:3px 10px; border-radius:20px; font-size:10px;
+            letter-spacing:1px; text-transform:uppercase;
+            background:rgba(0,255,136,0.1); color:var(--green); border:1px solid var(--border);
+        }
+        .logout { color:var(--red); text-decoration:none; font-size:11px; letter-spacing:1px; }
+        .logout:hover { color:#ff6b6b; }
+
+        /* LAYOUT */
+        .container { max-width:1200px; margin:0 auto; padding:32px 24px; }
+
+        /* FLASH */
+        .flash { padding:10px 16px; border-radius:4px; font-size:12px; margin-bottom:20px; letter-spacing:1px; }
+        .flash.success { background:rgba(0,255,136,0.08); border:1px solid var(--green); color:var(--green); }
+        .flash.error   { background:rgba(255,60,60,0.08);  border:1px solid var(--red);   color:var(--red); }
+
+        /* STAT CARDS */
+        .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:16px; margin-bottom:32px; }
+        .stat-card {
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:8px; padding:24px; position:relative; overflow:hidden;
+        }
+        .stat-card::before {
+            content:''; position:absolute; top:0; left:0; right:0; height:2px;
+        }
+        .stat-card.green::before  { background:var(--green); }
+        .stat-card.red::before    { background:var(--red); }
+        .stat-card.yellow::before { background:var(--yellow); }
+        .stat-card.blue::before   { background:var(--blue); }
+        .stat-number { font-size:42px; font-weight:bold; line-height:1; }
+        .stat-card.green  .stat-number { color:var(--green); }
+        .stat-card.red    .stat-number { color:var(--red); }
+        .stat-card.yellow .stat-number { color:var(--yellow); }
+        .stat-card.blue   .stat-number { color:var(--blue); }
+        .stat-label { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-top:8px; }
+
+        /* SECTION HEADER */
+        .section-header {
+            display:flex; align-items:center; justify-content:space-between;
+            margin-bottom:16px; margin-top:32px;
+        }
+        .section-title { color:var(--green); font-size:11px; letter-spacing:3px; text-transform:uppercase; }
+
+        /* CHARTS */
+        .charts { display:grid; grid-template-columns:2fr 1fr; gap:16px; margin-bottom:32px; }
+        .chart-card {
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:8px; padding:24px;
+        }
+        .chart-title { font-size:11px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:20px; }
+        canvas { max-height:220px; }
+
+        /* TABLE */
+        .table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+        table { width:100%; border-collapse:collapse; font-size:12px; }
+        th {
+            text-align:left; padding:12px 20px; color:var(--muted);
+            font-size:10px; letter-spacing:2px; text-transform:uppercase;
+            border-bottom:1px solid var(--border); background:var(--bg);
+        }
+        td { padding:10px 20px; border-bottom:1px solid #0d0d18; color:var(--text); vertical-align:middle; }
+        tr:last-child td { border-bottom:none; }
+        tr:hover td { background:#111122; }
+        .target-cell { color:var(--green); font-weight:bold; }
+        .flagged { color:var(--red); font-size:10px; letter-spacing:1px; }
+        .ok { color:var(--muted); font-size:10px; }
+        .empty { text-align:center; padding:40px; color:#333; font-size:12px; }
+
+        /* BUTTONS */
+        .btn {
+            padding:6px 14px; border-radius:4px; font-family:'Courier New',monospace;
+            font-size:10px; letter-spacing:1px; text-decoration:none; cursor:pointer;
+            border:1px solid; text-transform:uppercase; display:inline-flex;
+            align-items:center; gap:5px; transition:all .2s; background:transparent;
+        }
+        .btn-danger  { color:var(--red);    border-color:var(--red); }
+        .btn-danger:hover  { background:rgba(255,60,60,0.12); }
+        .btn-outline { color:var(--green);  border-color:var(--green); }
+        .btn-outline:hover { background:rgba(0,255,136,0.07); }
+        .btn-blue    { color:var(--blue);   border-color:var(--blue); }
+        .btn-blue:hover    { background:rgba(68,136,255,0.1); }
+        .btn-yellow  { color:var(--yellow); border-color:var(--yellow); }
+        .btn-yellow:hover  { background:rgba(255,170,0,0.1); }
+        .btn-sm { padding:4px 9px; font-size:9px; }
+
+        .actions-bar { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+        .row-actions { display:flex; gap:6px; align-items:center; }
+    </style>
+</head>
+<body>
+
+<nav>
+    <span class="brand">⬡ OSINT</span>
+    <div class="nav-links">
+        <a href="/dashboard" class="active">Dashboard</a>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/audit">Audit Logs</a>
+        <a href="/history">History</a>
+        <a href="/cases">Cases</a>
+        <a href="/admin/reports">Reports</a>
+        <a href="/admin/scheduled">Monitor</a>
+        <a href="/">Scanner</a>
+    </div>
+    <div class="nav-right">
+        <span>{{ admin_user }}</span>
+        <span class="role-badge">{{ admin_role }}</span>
+        <a href="/logout" class="logout">Logout</a>
+    </div>
+</nav>
+
+<div class="container">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+            <div class="flash {{ cat }}">{{ msg }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <!-- STAT CARDS -->
+    <div class="stats">
+        <div class="stat-card green">
+            <div class="stat-number">{{ total_scans }}</div>
+            <div class="stat-label">Total Scans</div>
+        </div>
+        <div class="stat-card red">
+            <div class="stat-number">{{ flagged_count }}</div>
+            <div class="stat-label">Threats Flagged</div>
+        </div>
+        <div class="stat-card yellow">
+            <div class="stat-number">{{ recent_count }}</div>
+            <div class="stat-label">Scans This Week</div>
+        </div>
+        <div class="stat-card blue">
+            <div class="stat-number">{{ total_users }}</div>
+            <div class="stat-label">Total Users</div>
+        </div>
+    </div>
+
+    <!-- CHARTS -->
+    <div class="charts">
+        <div class="chart-card">
+            <div class="chart-title">Scans — Last 7 Days</div>
+            <canvas id="scanChart"></canvas>
+        </div>
+        <div class="chart-card">
+            <div class="chart-title">Top Targets</div>
+            <canvas id="topChart"></canvas>
+        </div>
+    </div>
+
+    <!-- SECURITY DASHBOARD -->
+
+<div class="section-header">
+    <span class="section-title">Security Monitoring</span>
+</div>
+
+<div class="stats">
+
+
+<div class="stat-card red">
+    <div class="stat-number">
+        {{ security_events.sqli_blocked or 0 }}
+    </div>
+    <div class="stat-label">
+        SQL Injection Blocked
+    </div>
+</div>
+
+<div class="stat-card yellow">
+    <div class="stat-number">
+        {{ security_events.captcha_failed or 0 }}
+    </div>
+    <div class="stat-label">
+        Captcha Failed
+    </div>
+</div>
+
+<div class="stat-card blue">
+    <div class="stat-number">
+        {{ security_events.rate_limited or 0 }}
+    </div>
+    <div class="stat-label">
+        Rate Limited
+    </div>
+</div>
+
+<div class="stat-card green">
+    <div class="stat-number">
+        {{ security_events.jwt_accepted or 0 }}
+    </div>
+    <div class="stat-label">
+        JWT Accepted
+    </div>
+</div>
+
+<div class="stat-card red">
+    <div class="stat-number">
+        {{ security_events.jwt_rejected or 0 }}
+    </div>
+    <div class="stat-label">
+        JWT Rejected
+    </div>
+</div>
+
+
+</div>
+
+
+    <!-- RECENT SCANS TABLE -->
+    <div class="section-header">
+        <span class="section-title">Recent Scans</span>
+        <div class="actions-bar">
+            <!-- Export ALL scans as one CSV -->
+            <a href="/admin/export-csv" class="btn btn-outline btn-sm">⬇ Export All CSV</a>
+            {% if admin_role == "admin" %}
+            <form method="POST" action="/admin/delete-all" style="display:inline"
+                  onsubmit="return confirm('Delete ALL scan history? This cannot be undone.')">
+                <button class="btn btn-danger btn-sm">✕ Delete All</button>
+            </form>
+            {% endif %}
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Target</th>
+                    <th>Scanned At</th>
+                    <th>Type</th>
+                    <th>Status</th>
+                    <th>Download</th>
+                    {% if admin_role in ("admin","analyst") %}<th>Action</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% if latest %}
+                    {% for entry in latest %}
+                    <tr>
+                        <td style="color:var(--muted);">{{ entry.id }}</td>
+                        <td class="target-cell">{{ entry.target }}</td>
+                        <td style="color:var(--muted); font-size:11px;">
+                            {{ entry.scanned_at.strftime('%Y-%m-%d %H:%M') if entry.scanned_at else '—' }}
+                        </td>
+                        <td style="color:var(--muted); font-size:10px; letter-spacing:1px;">
+                            {{ entry.scan_type or 'full' }}
+                        </td>
+                        <td>
+                            {% if entry.flagged %}
+                                <span class="flagged">⚠ FLAGGED</span>
+                            {% else %}
+                                <span class="ok">clean</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <div class="row-actions">
+                                <!-- Per-row CSV: uses entry.id which is valid INSIDE this for loop -->
+                                <a href="/admin/export-csv/{{ entry.id }}"
+                                   class="btn btn-blue btn-sm"
+                                   title="Download CSV for {{ entry.target }}">
+                                   ⬇ CSV
+                                </a>
+                            </div>
+                        </td>
+                        {% if admin_role in ("admin","analyst") %}
+                        <td>
+                            <form method="POST" action="/admin/delete/{{ entry.id }}"
+                                  onsubmit="return confirm('Delete this scan?')">
+                                <button class="btn btn-danger btn-sm">✕ Del</button>
+                            </form>
+                        </td>
+                        {% endif %}
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr><td colspan="7" class="empty">No scans yet.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<script>
+const green     = '#00ff88';
+const red       = '#ff3c3c';
+const yellow    = '#ffaa00';
+const blue      = '#4488ff';
+const gridColor = 'rgba(255,255,255,0.04)';
+const textColor = '#555';
+
+Chart.defaults.color = textColor;
+Chart.defaults.font.family = "'Courier New', monospace";
+Chart.defaults.font.size = 10;
+
+new Chart(document.getElementById('scanChart'), {
+    type: 'line',
+    data: {
+        labels: {{ chart_labels | tojson }},
+        datasets: [{
+            label: 'Scans',
+            data: {{ chart_counts | tojson }},
+            borderColor: green,
+            backgroundColor: 'rgba(0,255,136,0.06)',
+            borderWidth: 2,
+            pointBackgroundColor: green,
+            pointRadius: 4,
+            fill: true,
+            tension: 0.3,
+        }]
+    },
+    options: {
+        responsive:true, maintainAspectRatio:true,
+        plugins:{ legend:{ display:false } },
+        scales:{
+            x:{ grid:{ color:gridColor } },
+            y:{ grid:{ color:gridColor }, beginAtZero:true, ticks:{ stepSize:1 } }
+        }
+    }
+});
+
+new Chart(document.getElementById('topChart'), {
+    type: 'bar',
+    data: {
+        labels: {{ top_labels | tojson }},
+        datasets: [{
+            label: 'Scans',
+            data: {{ top_counts | tojson }},
+            backgroundColor: [green, blue, yellow, red, '#aa44ff'],
+            borderRadius: 4,
+        }]
+    },
+    options: {
+        responsive:true, maintainAspectRatio:true, indexAxis:'y',
+        plugins:{ legend:{ display:false } },
+        scales:{
+            x:{ grid:{ color:gridColor }, beginAtZero:true, ticks:{ stepSize:1 } },
+            y:{ grid:{ color:gridColor } }
+        }
+    }
+});
+</script>
+
+</body>
+</html>

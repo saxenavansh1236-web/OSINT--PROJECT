@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Case #{{ case.id }} — {{ case.title }} | OSINT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f0e;
+      --surface:   #141714;
+      --card:      #181c18;
+      --border:    #1f2820;
+      --green:     #00ff6a;
+      --green-dim: #00c94f;
+      --green-glow:rgba(0,255,106,.12);
+      --text:      #c8d8c8;
+      --muted:     #5a6b5a;
+      --danger:    #ff4444;
+      --warn:      #ffaa00;
+      --info:      #44aaff;
+      --mono:      'Share Tech Mono', monospace;
+      --sans:      'Inter', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+    /* ── NAV ── */
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-family: var(--mono);
+      color: var(--green);
+      font-size: .95rem;
+      letter-spacing: .12em;
+      text-decoration: none;
+    }
+    .nav-brand svg { width: 20px; height: 20px; }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .14em;
+      color: var(--muted);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: color .2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--green); }
+    .nav-user { font-family: var(--mono); font-size: .72rem; color: var(--muted); letter-spacing: .1em; }
+
+    /* ── LAYOUT ── */
+    main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    .page-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .page-title { font-family: var(--mono); font-size: 1.4rem; color: var(--green); letter-spacing: .08em; }
+    .page-title small {
+      display: block;
+      font-family: var(--sans);
+      font-size: .75rem;
+      color: var(--muted);
+      letter-spacing: normal;
+      margin-top: .25rem;
+    }
+    .case-id-line {
+      font-family: var(--mono);
+      font-size: .68rem;
+      color: var(--muted);
+      letter-spacing: .12em;
+      margin-bottom: .35rem;
+    }
+
+    /* ── BUTTONS ── */
+    .btn {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .1em;
+      padding: .5rem 1.1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid;
+      transition: all .2s;
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: transparent;
+    }
+    .btn-green {
+      background: var(--green);
+      border-color: var(--green);
+      color: #050e05;
+      font-weight: 700;
+    }
+    .btn-green:hover { background: var(--green-dim); border-color: var(--green-dim); }
+    .btn-outline { border-color: var(--border); color: var(--muted); }
+    .btn-outline:hover { border-color: var(--green); color: var(--green); }
+    .btn-danger { border-color: rgba(255,68,68,.3); color: var(--danger); }
+    .btn-danger:hover { border-color: var(--danger); background: rgba(255,68,68,.08); }
+    .btn-block { display: block; width: 100%; text-align: center; }
+
+    /* ── TAGS ── */
+    .tag-row { display: flex; gap: .4rem; margin-top: .5rem; flex-wrap: wrap; }
+    .tag {
+      font-family: var(--mono);
+      font-size: .6rem;
+      padding: .15rem .4rem;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      color: var(--muted);
+      letter-spacing: .06em;
+    }
+
+    /* ── BADGES ── */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      font-family: var(--mono);
+      font-size: .63rem;
+      letter-spacing: .08em;
+      padding: .2rem .55rem;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+    .badge-lg { font-size: .72rem; padding: .35rem .8rem; margin-top: .5rem; }
+    .badge-green  { color: var(--green);  border-color: var(--green);  background: rgba(0,255,106,.07); }
+    .badge-red    { color: var(--danger); border-color: var(--danger); background: rgba(255,68,68,.07); }
+    .badge-yellow { color: var(--warn);   border-color: var(--warn);   background: rgba(255,170,0,.07); }
+    .badge-orange { color: #ff7700;       border-color: #ff7700;       background: rgba(255,119,0,.07); }
+    .badge-blue   { color: var(--info);   border-color: var(--info);   background: rgba(68,170,255,.07); }
+    .badge-gray   { color: var(--muted);  border-color: var(--border); background: transparent; }
+
+    /* ── FLASH ── */
+    .flash {
+      padding: .75rem 1.25rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      font-size: .82rem;
+      font-family: var(--mono);
+      letter-spacing: .06em;
+    }
+    .flash-success { background: rgba(0,255,106,.1); border: 1px solid var(--green); color: var(--green); }
+    .flash-error   { background: rgba(255,68,68,.1);  border: 1px solid var(--danger); color: var(--danger); }
+
+    /* ── GRID / CARDS ── */
+    .case-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr;
+      gap: 1.25rem;
+    }
+    @media (max-width: 850px) { .case-grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .card h3 {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--green);
+      margin-bottom: .6rem;
+    }
+    .card h3:not(:first-child) { margin-top: 1.1rem; }
+    .card p { font-size: .85rem; line-height: 1.6; color: var(--text); }
+    .card .mono { font-family: var(--mono); font-size: .8rem; color: var(--green); }
+
+    .meta-row {
+      display: flex;
+      flex-direction: column;
+      gap: .3rem;
+      margin-top: 1rem;
+      padding-top: .85rem;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: .65rem;
+      color: var(--muted);
+    }
+
+    /* ── NOTES ── */
+    textarea {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: .82rem;
+      padding: .7rem;
+      resize: vertical;
+      outline: none;
+      margin-bottom: .7rem;
+    }
+    textarea:focus { border-color: var(--green); }
+
+    .note-list { list-style: none; display: flex; flex-direction: column; gap: .7rem; margin-top: 1rem; }
+    .note-item {
+      border-left: 2px solid var(--green);
+      background: rgba(0,255,106,.04);
+      padding: .6rem .85rem;
+      border-radius: 0 4px 4px 0;
+    }
+    .note-meta {
+      font-family: var(--mono);
+      font-size: .63rem;
+      color: var(--muted);
+      margin-bottom: .3rem;
+      letter-spacing: .06em;
+    }
+    .note-content { font-size: .82rem; line-height: 1.5; white-space: pre-wrap; }
+    .empty-row { color: var(--muted); font-family: var(--mono); font-size: .72rem; padding: 1rem 0; text-align: center; }
+
+    /* ── SELECT ── */
+    select {
+      width: 100%;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: .78rem;
+      padding: .5rem .7rem;
+      outline: none;
+    }
+    select:focus { border-color: var(--green); }
+
+    .danger-zone { border-color: rgba(255,68,68,.25); }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+    OSINT
+  </a>
+  <ul class="nav-links">
+    <li><a href="/">Scanner</a></li>
+    <li><a href="/history">History</a></li>
+    <li><a href="/cases" class="active">Cases</a></li>
+    <li><a href="/admin/reports">Reports</a></li>
+    <li><a href="/admin/scheduled">Monitor</a></li>
+    <li><a href="/dashboard">Admin</a></li>
+  </ul>
+  <span class="nav-user">{{ admin_user }} · {{ admin_role }}</span>
+</nav>
+
+<main>
+
+  <div class="page-header">
+    <div>
+      <div class="case-id-line">CASE #{{ case.id }}</div>
+      <div class="page-title">
+        {{ case.title }}
+        <small>{{ case.target }}</small>
+      </div>
+      {% if case.tags %}
+        <div class="tag-row">
+          {% for t in case.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+        </div>
+      {% endif %}
+    </div>
+    <a href="/cases" class="btn btn-outline">← Back to Cases</a>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="case-grid">
+
+    <div class="case-main">
+
+      <div class="card">
+<a href="{{ url_for('evidence_center', case_id=case.id) }}" class="btn btn-outline btn-block" style="margin-bottom:.6rem;">📁 Evidence Center</a>
+<a href="{{ url_for('case_timeline', case_id=case.id) }}" class="btn btn-outline btn-block" style="margin-bottom:.6rem;">🕐 Timeline</a>
+<a href="{{ url_for('case_intelligence', case_id=case.id) }}" class="btn btn-outline btn-block" style="margin-bottom:.6rem;">🧠 Intelligence</a>
+<a href="{{ url_for('case_report_pdf', case_id=case.id) }}" class="btn btn-outline btn-block" style="margin-bottom: 1rem;">📄 Export PDF Report</a>
+        <h3>Description</h3>
+        <p>{{ case.description or "No description provided." }}</p>
+        <div class="meta-row">
+          <span>Created by {{ case.created_by or 'unknown' }} on {{ case.created_at or '—' }}</span>
+          <span>Last updated {{ case.updated_at or '—' }}</span>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Investigator Notes ({{ notes|length }})</h3>
+        <form method="POST" action="/cases/{{ case.id }}/note">
+          <textarea name="content" rows="3" placeholder="Add a finding, lead, or update..." required></textarea>
+          <button type="submit" class="btn btn-green">Add Note</button>
+        </form>
+
+        <ul class="note-list">
+          {% for n in notes %}
+          <li class="note-item">
+            <div class="note-meta">{{ n.author or 'unknown' }} · {{ n.created_at or '—' }}</div>
+            <div class="note-content">{{ n.content }}</div>
+          </li>
+          {% else %}
+          <li class="empty-row">No notes yet.</li>
+          {% endfor %}
+        </ul>
+      </div>
+
+    </div>
+
+    <div class="case-sidebar">
+
+      <div class="card">
+        <h3>Status</h3>
+        <form method="POST" action="/cases/{{ case.id }}/update">
+          <input type="hidden" name="priority" value="{{ case.priority }}">
+          <input type="hidden" name="description" value="{{ case.description }}">
+          <select name="status" onchange="this.form.submit()">
+            <option value="open"     {% if case.status=='open' %}selected{% endif %}>Open</option>
+            <option value="active"   {% if case.status=='active' %}selected{% endif %}>Active</option>
+            <option value="closed"   {% if case.status=='closed' %}selected{% endif %}>Closed</option>
+            <option value="archived" {% if case.status=='archived' %}selected{% endif %}>Archived</option>
+          </select>
+        </form>
+        {% if case.status == 'open' %}
+          <span class="badge badge-green badge-lg">OPEN</span>
+        {% elif case.status == 'active' %}
+          <span class="badge badge-blue badge-lg">ACTIVE</span>
+        {% elif case.status == 'closed' %}
+          <span class="badge badge-gray badge-lg">CLOSED</span>
+        {% else %}
+          <span class="badge badge-gray badge-lg">{{ case.status|upper }}</span>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h3>Priority</h3>
+        <form method="POST" action="/cases/{{ case.id }}/update">
+          <input type="hidden" name="status" value="{{ case.status }}">
+          <input type="hidden" name="description" value="{{ case.description }}">
+          <select name="priority" onchange="this.form.submit()">
+            <option value="low"      {% if case.priority=='low' %}selected{% endif %}>Low</option>
+            <option value="medium"   {% if case.priority=='medium' %}selected{% endif %}>Medium</option>
+            <option value="high"     {% if case.priority=='high' %}selected{% endif %}>High</option>
+            <option value="critical" {% if case.priority=='critical' %}selected{% endif %}>Critical</option>
+          </select>
+        </form>
+        {% if case.priority == 'critical' %}
+          <span class="badge badge-red badge-lg">CRITICAL</span>
+        {% elif case.priority == 'high' %}
+          <span class="badge badge-orange badge-lg">HIGH</span>
+        {% elif case.priority == 'medium' %}
+          <span class="badge badge-yellow badge-lg">MEDIUM</span>
+        {% else %}
+          <span class="badge badge-green badge-lg">LOW</span>
+        {% endif %}
+      </div>
+
+      <div class="card">
+        <h3>Export</h3>
+        <a href="/cases/{{ case.id }}/export?format=json" class="btn btn-outline btn-block" style="margin-bottom:.6rem;">Export JSON</a>
+        <a href="/cases/{{ case.id }}/export?format=text" class="btn btn-outline btn-block">Export Text Report</a>
+      </div>
+
+      {% if admin_role == 'admin' %}
+      <div class="card danger-zone">
+        <h3>Danger Zone</h3>
+        <form method="POST" action="/cases/{{ case.id }}/delete"
+              onsubmit="return confirm('Delete case #{{ case.id }}? This cannot be undone.');">
+          <button type="submit" class="btn btn-danger btn-block">Delete Case</button>
+        </form>
+      </div>
+      {% endif %}
+
+    </div>
+
+  </div>
+
+</main>
+
+</body>
+</html>

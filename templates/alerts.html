@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Notifications — OSINT</title>
+<style>
+  :root{
+    --bg:        #0a0a0f;
+    --panel:     #101014;
+    --panel-2:   #14161a;
+    --border:    #1a2a1a;
+    --border-lt: #22252a;
+    --text:      #cfd3d6;
+    --text-dim:  #6b7280;
+    --text-mute: #4a4e55;
+    --green:     #00ff88;
+    --green-dim: #0a3d24;
+    --amber:     #ffaa00;
+    --red:       #ff3c3c;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:'JetBrains Mono','Fira Code',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    font-size:14px;
+    line-height:1.5;
+  }
+  a{color:inherit;text-decoration:none;}
+
+  /* ── Nav ───────────────────────────────────────── */
+  nav.topbar{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:18px 32px;
+    border-bottom:1px solid var(--border-lt);
+    background:var(--bg);
+  }
+  .brand{display:flex;align-items:center;gap:10px;color:var(--green);font-weight:700;letter-spacing:2px;font-size:15px;}
+  .brand svg{width:20px;height:20px;}
+  .navlinks{display:flex;gap:34px;font-size:12px;letter-spacing:2px;color:var(--text-dim);}
+  .navlinks a:hover{color:var(--text);}
+  .navlinks a.active{color:var(--green);}
+  .navuser{font-size:12px;color:var(--text-mute);letter-spacing:1px;}
+  .navuser strong{color:var(--text-dim);font-weight:500;}
+
+  /* ── Page header ───────────────────────────────── */
+  .page{max-width:1100px;margin:0 auto;padding:48px 32px 80px;}
+  h1.title{
+    color:var(--green);font-size:26px;letter-spacing:1px;margin:0 0 6px;font-weight:700;
+  }
+  p.subtitle{color:var(--text-dim);margin:0 0 36px;font-size:13px;}
+
+  /* ── Flash messages ────────────────────────────── */
+  .flash{padding:12px 16px;border-radius:6px;margin-bottom:20px;font-size:13px;border:1px solid;}
+  .flash.success{background:rgba(0,255,136,0.06);border-color:var(--green-dim);color:var(--green);}
+  .flash.error{background:rgba(255,60,60,0.06);border-color:#3d0a0a;color:var(--red);}
+
+  /* ── Panels ────────────────────────────────────── */
+  .panel{
+    background:var(--panel);border:1px solid var(--border-lt);border-radius:10px;
+    padding:28px;margin-bottom:28px;
+  }
+  .panel-label{
+    color:var(--text-dim);font-size:11px;letter-spacing:2px;margin-bottom:20px;
+  }
+
+  /* ── Form grid ─────────────────────────────────── */
+  .form-grid{
+    display:grid;grid-template-columns:1.4fr 0.7fr 1.4fr 1.4fr auto;gap:16px;align-items:end;
+  }
+  .field label{
+    display:block;font-size:10px;letter-spacing:2px;color:var(--text-dim);margin-bottom:8px;
+  }
+  .field input, .field select{
+    width:100%;background:var(--panel-2);border:1px solid var(--border-lt);border-radius:6px;
+    color:var(--text);padding:11px 12px;font-family:inherit;font-size:13px;
+  }
+  .field input::placeholder{color:var(--text-mute);}
+  .field input:focus, .field select:focus{outline:none;border-color:var(--green-dim);}
+
+  .btn{
+    background:var(--green);color:#06140d;border:none;border-radius:6px;
+    padding:11px 20px;font-family:inherit;font-weight:700;font-size:13px;cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn:hover{filter:brightness(1.08);}
+  .btn.secondary{
+    background:transparent;border:1px solid var(--border-lt);color:var(--text-dim);
+  }
+  .btn.secondary:hover{color:var(--text);border-color:var(--text-mute);}
+
+  .status-row{display:flex;align-items:center;gap:10px;margin-top:18px;font-size:12px;color:var(--text-dim);}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--text-mute);}
+  .dot.on{background:var(--green);box-shadow:0 0 8px var(--green);}
+  .dot.off{background:var(--red);}
+
+  /* ── Test alert row ────────────────────────────── */
+  .test-row{
+    display:flex;gap:12px;margin-top:22px;padding-top:22px;border-top:1px solid var(--border-lt);
+  }
+  .test-row input{flex:1;}
+
+  /* ── Log table ─────────────────────────────────── */
+  table.logs{width:100%;border-collapse:collapse;font-size:12.5px;}
+  table.logs thead th{
+    text-align:left;color:var(--text-dim);font-weight:500;letter-spacing:1.5px;font-size:10.5px;
+    padding:10px 14px;border-bottom:1px solid var(--border-lt);
+  }
+  table.logs tbody td{
+    padding:12px 14px;border-bottom:1px solid #16181c;color:var(--text);
+  }
+  table.logs tbody tr:hover{background:var(--panel-2);}
+  .pill{
+    display:inline-block;padding:3px 9px;border-radius:20px;font-size:10.5px;letter-spacing:1px;
+    border:1px solid;
+  }
+  .pill.change{color:#4488ff;border-color:#122246;background:rgba(68,136,255,0.06);}
+  .pill.breach{color:var(--red);border-color:#3d0a0a;background:rgba(255,60,60,0.06);}
+  .pill.custom{color:var(--amber);border-color:#3d2c0a;background:rgba(255,170,0,0.06);}
+  .sev{font-size:11px;letter-spacing:1px;}
+  .sev.critical, .sev.high{color:var(--red);}
+  .sev.medium{color:var(--amber);}
+  .sev.low, .sev.info{color:var(--green);}
+  .ok{color:var(--green);}
+  .fail{color:var(--red);}
+
+  .empty{
+    text-align:center;padding:70px 20px;color:var(--text-mute);
+  }
+  .empty .ring{
+    width:44px;height:44px;border:2px solid var(--border-lt);border-radius:50%;
+    margin:0 auto 18px;
+  }
+  .empty .big{color:var(--text-dim);font-size:13px;letter-spacing:2px;margin-bottom:6px;}
+  .empty .small{font-size:12px;}
+
+  @media (max-width:900px){
+    .form-grid{grid-template-columns:1fr 1fr;}
+    .navlinks{display:none;}
+  }
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M12 2l8 4.5v9L12 20l-8-4.5v-9z"/><circle cx="12" cy="12" r="2.6"/></svg>
+    OSINT
+  </div>
+  <div class="navlinks">
+    <a href="{{ url_for('home') }}">SCANNER</a>
+    <a href="{{ url_for('history') }}">HISTORY</a>
+    <a href="{{ url_for('cases') }}">CASES</a>
+    <a href="{{ url_for('reports') }}">REPORTS</a>
+    <a href="{{ url_for('scheduled') }}">MONITOR</a>
+    <a href="{{ url_for('dashboard') }}" class="active">ADMIN</a>
+  </div>
+  <div class="navuser">
+    {{ admin_user or session.get('admin_user','') }} &middot; <strong>{{ admin_role or session.get('admin_role','admin') }}</strong>
+  </div>
+</nav>
+
+<div class="page">
+  <h1 class="title">Notifications</h1>
+  <p class="subtitle">SMTP and webhook delivery for change, breach, and custom alerts</p>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="flash {{ category }}">{{ message }}</div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+
+  <!-- SMTP / Webhook config -->
+  <form class="panel" method="POST" action="{{ url_for('save_alerts_config') }}">
+    <div class="panel-label">// SMTP CONFIGURATION</div>
+    <div class="form-grid">
+      <div class="field">
+        <label>SMTP HOST</label>
+        <input type="text" name="smtp_host" value="{{ config.host or 'smtp.gmail.com' }}" placeholder="smtp.gmail.com">
+      </div>
+      <div class="field">
+        <label>PORT</label>
+        <input type="number" name="smtp_port" value="{{ config.port or 587 }}" placeholder="587">
+      </div>
+      <div class="field">
+        <label>USERNAME</label>
+        <input type="text" name="smtp_user" value="{{ config.user or '' }}" placeholder="you@gmail.com">
+      </div>
+      <div class="field">
+        <label>PASSWORD {% if config.password %}<span style="color:var(--text-mute)">(set — leave blank to keep)</span>{% endif %}</label>
+        <input type="password" name="smtp_password" placeholder="{{ config.password or 'app password' }}">
+      </div>
+      <div class="field">
+        <button type="submit" class="btn">Save</button>
+      </div>
+    </div>
+
+    <div class="form-grid" style="grid-template-columns:1.4fr 1.4fr auto;margin-top:16px;">
+      <div class="field">
+        <label>FROM EMAIL (OPTIONAL)</label>
+        <input type="text" name="from_email" value="{{ config.from or '' }}" placeholder="defaults to username">
+      </div>
+      <div class="field">
+        <label>WEBHOOK URL (SLACK / DISCORD)</label>
+        <input type="text" name="webhook_url" value="{{ config.webhook_url or '' }}" placeholder="https://hooks.slack.com/...">
+      </div>
+      <div></div>
+    </div>
+
+    <div class="status-row">
+      <span class="dot {{ 'on' if config.configured else 'off' }}"></span>
+      {{ 'SMTP configured and ready' if config.configured else 'SMTP not configured — alerts will not send' }}
+    </div>
+  </form>
+
+  <!-- Test alert -->
+  <form class="panel" method="POST" action="{{ url_for('test_alert') }}">
+    <div class="panel-label">// SEND TEST ALERT</div>
+    <div class="test-row">
+      <input type="email" name="test_email" placeholder="send a test alert to this address" required>
+      <button type="submit" class="btn secondary">Send test</button>
+    </div>
+  </form>
+
+  <!-- Alert log -->
+  <div class="panel" style="padding-bottom:0;">
+    <div class="panel-label">// ALERT LOG {% if logs %}({{ logs|length }}){% endif %}</div>
+
+    {% if logs %}
+    <table class="logs">
+      <thead>
+        <tr>
+          <th>Target</th>
+          <th>Type</th>
+          <th>Severity</th>
+          <th>Sent To</th>
+          <th>Status</th>
+          <th>Sent At</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in logs %}
+        <tr>
+          <td>{{ log.target }}</td>
+          <td><span class="pill {{ log.alert_type }}">{{ log.alert_type|upper }}</span></td>
+          <td><span class="sev {{ log.severity }}">{{ log.severity|upper }}</span></td>
+          <td style="color:var(--text-dim)">{{ log.sent_to }}</td>
+          <td>{% if log.success %}<span class="ok">&#10003; Sent</span>{% else %}<span class="fail">&#10007; Failed</span>{% endif %}</td>
+          <td style="color:var(--text-dim)">{{ log.sent_at }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">
+      <div class="ring"></div>
+      <div class="big">NO ALERTS SENT YET</div>
+      <div class="small">Alerts fire automatically when a monitored target changes, or a breach is found</div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+
+</body>
+</html>

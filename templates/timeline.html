@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Timeline — Case #{{ case.id }} | OSINT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f0e;
+      --surface:   #141714;
+      --card:      #181c18;
+      --border:    #1f2820;
+      --green:     #00ff6a;
+      --green-dim: #00c94f;
+      --text:      #c8d8c8;
+      --muted:     #5a6b5a;
+      --danger:    #ff4444;
+      --warn:      #ffaa00;
+      --info:      #44aaff;
+      --purple:    #b388ff;
+      --mono:      'Share Tech Mono', monospace;
+      --sans:      'Inter', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 2rem; height: 52px; position: sticky; top: 0; z-index: 100;
+    }
+    .nav-brand {
+      display: flex; align-items: center; gap: .6rem;
+      font-family: var(--mono); color: var(--green);
+      font-size: .95rem; letter-spacing: .12em; text-decoration: none;
+    }
+    .nav-brand svg { width: 20px; height: 20px; }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a {
+      font-family: var(--mono); font-size: .72rem; letter-spacing: .14em;
+      color: var(--muted); text-decoration: none; text-transform: uppercase;
+      transition: color .2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--green); }
+    .nav-user { font-family: var(--mono); font-size: .72rem; color: var(--muted); letter-spacing: .1em; }
+
+    main { max-width: 900px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    .page-header {
+      display: flex; align-items: flex-end; justify-content: space-between;
+      margin-bottom: 1.5rem; gap: 1rem; flex-wrap: wrap;
+    }
+    .case-id-line { font-family: var(--mono); font-size: .68rem; color: var(--muted); letter-spacing: .12em; margin-bottom: .35rem; }
+    .page-title { font-family: var(--mono); font-size: 1.4rem; color: var(--green); letter-spacing: .08em; }
+    .page-title small {
+      display: block; font-family: var(--sans); font-size: .75rem;
+      color: var(--muted); letter-spacing: normal; margin-top: .25rem;
+    }
+
+    .btn {
+      font-family: var(--mono); font-size: .72rem; letter-spacing: .1em;
+      padding: .5rem 1.1rem; border-radius: 4px; cursor: pointer;
+      text-decoration: none; border: 1px solid; transition: all .2s;
+      display: inline-flex; align-items: center; gap: .4rem; background: transparent;
+    }
+    .btn-outline { border-color: var(--border); color: var(--muted); }
+    .btn-outline:hover { border-color: var(--green); color: var(--green); }
+
+    /* ── STAT ROW ── */
+    .stat-row { display: flex; gap: 1rem; margin-bottom: 2rem; flex-wrap: wrap; }
+    .stat-pill {
+      background: var(--card); border: 1px solid var(--border); border-radius: 6px;
+      padding: .6rem 1rem; display: flex; align-items: center; gap: .6rem;
+    }
+    .stat-pill-num { font-family: var(--mono); font-size: 1.2rem; color: var(--green); }
+    .stat-pill-label { font-family: var(--mono); font-size: .6rem; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+
+    /* ── TIMELINE ── */
+    .timeline { position: relative; padding-left: 2.5rem; }
+    .timeline::before {
+      content: '';
+      position: absolute;
+      left: 11px; top: 6px; bottom: 6px;
+      width: 2px;
+      background: linear-gradient(to bottom, var(--green), var(--border) 90%);
+      opacity: .35;
+    }
+
+    .event {
+      position: relative;
+      margin-bottom: 1.5rem;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1rem 1.2rem;
+    }
+    .event::before {
+      content: '';
+      position: absolute;
+      left: -2.5rem;
+      top: 1.15rem;
+      width: 12px; height: 12px;
+      border-radius: 50%;
+      background: var(--bg);
+      border: 2px solid var(--muted);
+    }
+
+    .event.evt-case::before      { border-color: var(--green); box-shadow: 0 0 8px rgba(0,255,106,.5); }
+    .event.evt-update::before    { border-color: var(--info); }
+    .event.evt-note::before      { border-color: var(--purple); }
+    .event.evt-evidence::before  { border-color: var(--warn); }
+    .event.evt-scan::before      { border-color: var(--green-dim); }
+    .event.evt-risk::before      { border-color: var(--warn); }
+    .event.evt-danger::before    { border-color: var(--danger); box-shadow: 0 0 8px rgba(255,68,68,.5); }
+    .event.evt-warn::before      { border-color: var(--warn); }
+    .event.evt-other::before     { border-color: var(--muted); }
+
+    .event-head {
+      display: flex; align-items: center; justify-content: space-between;
+      gap: .75rem; margin-bottom: .4rem; flex-wrap: wrap;
+    }
+    .event-label {
+      font-family: var(--mono); font-size: .82rem; font-weight: 700;
+      display: flex; align-items: center; gap: .5rem;
+    }
+    .event-label .icon { font-size: 1rem; }
+    .event.evt-case .event-label      { color: var(--green); }
+    .event.evt-danger .event-label    { color: var(--danger); }
+    .event.evt-warn .event-label      { color: var(--warn); }
+    .event.evt-risk .event-label      { color: var(--warn); }
+    .event.evt-evidence .event-label  { color: var(--warn); }
+    .event.evt-note .event-label      { color: var(--purple); }
+    .event.evt-update .event-label    { color: var(--info); }
+    .event.evt-scan .event-label      { color: var(--green-dim); }
+    .event.evt-other .event-label     { color: var(--muted); }
+
+    .event-time {
+      font-family: var(--mono); font-size: .68rem; color: var(--muted);
+    }
+    .event-detail { font-size: .82rem; color: var(--text); line-height: 1.5; }
+    .event-actor {
+      font-family: var(--mono); font-size: .65rem; color: var(--muted);
+      margin-top: .4rem; letter-spacing: .05em;
+    }
+
+    .empty {
+      text-align: center; padding: 4rem 2rem; color: var(--muted); font-family: var(--mono);
+    }
+    .empty-icon { font-size: 2.5rem; margin-bottom: 1rem; opacity: .2; }
+    .empty-title { font-size: .85rem; letter-spacing: .12em; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+    OSINT
+  </a>
+  <ul class="nav-links">
+    <li><a href="/">Scanner</a></li>
+    <li><a href="/history">History</a></li>
+    <li><a href="/cases" class="active">Cases</a></li>
+    <li><a href="/admin/reports">Reports</a></li>
+    <li><a href="/admin/scheduled">Monitor</a></li>
+    <li><a href="/dashboard">Admin</a></li>
+  </ul>
+  <span class="nav-user">{{ admin_user }} · {{ admin_role }}</span>
+</nav>
+
+<main>
+
+  <div class="page-header">
+    <div>
+      <div class="case-id-line">CASE #{{ case.id }}</div>
+      <div class="page-title">
+        Timeline
+        <small>{{ case.title }} — {{ case.target }}</small>
+      </div>
+    </div>
+    <a href="/cases/{{ case.id }}" class="btn btn-outline">← Back to Case</a>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat-pill">
+      <div class="stat-pill-num">{{ summary.total }}</div>
+      <div class="stat-pill-label">Total Events</div>
+    </div>
+    {% if summary.first_event %}
+    <div class="stat-pill">
+      <div class="stat-pill-num" style="font-size:.85rem;">{{ summary.first_event }}</div>
+      <div class="stat-pill-label">First Event</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-pill-num" style="font-size:.85rem;">{{ summary.last_event }}</div>
+      <div class="stat-pill-label">Latest Event</div>
+    </div>
+    {% endif %}
+  </div>
+
+  {% if events %}
+  <div class="timeline">
+    {% for e in events %}
+    <div class="event {{ e.css }}">
+      <div class="event-head">
+        <div class="event-label"><span class="icon">{{ e.icon }}</span> {{ e.label }}</div>
+        <div class="event-time">{{ e.timestamp }}</div>
+      </div>
+      <div class="event-detail">{{ e.detail }}</div>
+      <div class="event-actor">by {{ e.actor }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty">
+    <div class="empty-icon">◷</div>
+    <div class="empty-title">No timeline events yet</div>
+  </div>
+  {% endif %}
+
+</main>
+
+</body>
+</html>

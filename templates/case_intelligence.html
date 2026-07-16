@@ -1,0 +1,319 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Case #{{ case.id }} — Intelligence | OSINT</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f0e;
+      --surface:   #141714;
+      --card:      #181c18;
+      --border:    #1f2820;
+      --green:     #00ff6a;
+      --green-dim: #00c94f;
+      --text:      #c8d8c8;
+      --muted:     #5a6b5a;
+      --danger:    #ff4444;
+      --warn:      #ffaa00;
+      --info:      #44aaff;
+      --mono:      'Share Tech Mono', monospace;
+      --sans:      'Inter', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-family: var(--mono);
+      color: var(--green);
+      font-size: .95rem;
+      letter-spacing: .12em;
+      text-decoration: none;
+    }
+    .nav-brand svg { width: 20px; height: 20px; }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .14em;
+      color: var(--muted);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: color .2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--green); }
+    .nav-user { font-family: var(--mono); font-size: .72rem; color: var(--muted); letter-spacing: .1em; }
+
+    main { max-width: 1100px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    .page-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 1.5rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .page-title { font-family: var(--mono); font-size: 1.4rem; color: var(--green); letter-spacing: .08em; }
+    .page-title small {
+      display: block;
+      font-family: var(--sans);
+      font-size: .75rem;
+      color: var(--muted);
+      letter-spacing: normal;
+      margin-top: .25rem;
+    }
+    .case-id-line {
+      font-family: var(--mono);
+      font-size: .68rem;
+      color: var(--muted);
+      letter-spacing: .12em;
+      margin-bottom: .35rem;
+    }
+
+    .btn {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .1em;
+      padding: .5rem 1.1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid;
+      transition: all .2s;
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      background: transparent;
+    }
+    .btn-outline { border-color: var(--border); color: var(--muted); }
+    .btn-outline:hover { border-color: var(--green); color: var(--green); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      font-family: var(--mono);
+      font-size: .63rem;
+      letter-spacing: .08em;
+      padding: .2rem .55rem;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+    .badge-lg { font-size: .95rem; padding: .4rem 1rem; }
+    .badge-xl { font-size: 2.2rem; padding: .5rem 0; border: none; background: none; letter-spacing: .04em; }
+    .badge-green  { color: var(--green);  border-color: var(--green);  background: rgba(0,255,106,.07); }
+    .badge-red    { color: var(--danger); border-color: var(--danger); background: rgba(255,68,68,.07); }
+    .badge-yellow { color: var(--warn);   border-color: var(--warn);   background: rgba(255,170,0,.07); }
+    .badge-orange { color: #ff7700;       border-color: #ff7700;       background: rgba(255,119,0,.07); }
+    .badge-gray   { color: var(--muted);  border-color: var(--border); background: transparent; }
+
+    .flash {
+      padding: .75rem 1.25rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      font-size: .82rem;
+      font-family: var(--mono);
+      letter-spacing: .06em;
+    }
+    .flash-success { background: rgba(0,255,106,.1); border: 1px solid var(--green); color: var(--green); }
+    .flash-error   { background: rgba(255,68,68,.1);  border: 1px solid var(--danger); color: var(--danger); }
+
+    .intel-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1.25rem;
+    }
+    @media (max-width: 750px) { .intel-grid { grid-template-columns: 1fr; } }
+
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      margin-bottom: 1.25rem;
+    }
+    .card.full { grid-column: 1 / -1; }
+    .card h3 {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+      color: var(--green);
+      margin-bottom: .6rem;
+    }
+    .card-sub { font-size: .78rem; color: var(--muted); margin-top: .3rem; line-height: 1.5; }
+
+    .warning-list { list-style: none; margin-top: .8rem; display: flex; flex-direction: column; gap: .4rem; }
+    .warning-list li {
+      font-size: .8rem;
+      padding: .5rem .7rem;
+      border-left: 2px solid var(--warn);
+      background: rgba(255,170,0,.05);
+      border-radius: 0 4px 4px 0;
+      color: var(--text);
+    }
+
+    table { width: 100%; border-collapse: collapse; margin-top: .8rem; }
+    th { text-align: left; font-family: var(--mono); font-size: .62rem; letter-spacing: .08em; color: var(--muted); padding: .4rem .5rem; text-transform: uppercase; }
+    td { padding: .55rem .5rem; font-size: .8rem; border-top: 1px solid var(--border); vertical-align: top; }
+    td a { color: var(--green); text-decoration: none; }
+    td a:hover { text-decoration: underline; }
+    .reasons { font-size: .72rem; color: var(--muted); }
+
+    .empty-row { color: var(--muted); font-family: var(--mono); font-size: .72rem; padding: 1rem 0; text-align: center; }
+
+    .note-preview {
+      margin-top: .8rem;
+      padding: .7rem .85rem;
+      border-left: 2px solid var(--green);
+      background: rgba(0,255,106,.04);
+      border-radius: 0 4px 4px 0;
+    }
+    .note-meta { font-family: var(--mono); font-size: .63rem; color: var(--muted); margin-bottom: .3rem; letter-spacing: .06em; }
+    .note-content { font-size: .82rem; line-height: 1.5; white-space: pre-wrap; }
+  </style>
+</head>
+<body>
+
+<nav>
+  <a href="/" class="nav-brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+    OSINT
+  </a>
+  <ul class="nav-links">
+    <li><a href="/">Scanner</a></li>
+    <li><a href="/history">History</a></li>
+    <li><a href="/cases" class="active">Cases</a></li>
+    <li><a href="/admin/reports">Reports</a></li>
+    <li><a href="/admin/scheduled">Monitor</a></li>
+    <li><a href="/dashboard">Admin</a></li>
+  </ul>
+  <span class="nav-user">{{ admin_user }} · {{ admin_role }}</span>
+</nav>
+
+<main>
+
+  <div class="page-header">
+    <div>
+      <div class="case-id-line">CASE #{{ case.id }} · INTELLIGENCE</div>
+      <div class="page-title">
+        {{ case.title or case.target }}
+        <small>{{ case.target }}</small>
+      </div>
+    </div>
+    <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-outline">← Back to Case</a>
+  </div>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <div class="intel-grid">
+
+    <div class="card">
+      <h3>Confidence Score</h3>
+      <div class="badge-xl" style="color: var(--green);">{{ intel.confidence }}%</div>
+      <div class="card-sub">
+        Based on resolvable infrastructure data (WHOIS / DNS / SSL / geo),
+        corroborating sources, and investigator notes.
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Risk Analysis</h3>
+      {% set risk_class = {
+        'LOW': 'badge-green', 'MEDIUM': 'badge-yellow',
+        'HIGH': 'badge-orange', 'CRITICAL': 'badge-red'
+      } %}
+      <span class="badge {{ risk_class.get(intel.risk_level, 'badge-gray') }} badge-lg">
+        {{ intel.risk_level }}
+      </span>
+      <div class="card-sub">Risk score: {{ intel.risk_score }} / 100</div>
+
+      {% if intel.warnings %}
+      <ul class="warning-list">
+        {% for w in intel.warnings %}
+        <li>{{ w }}</li>
+        {% endfor %}
+      </ul>
+      {% endif %}
+    </div>
+
+    <div class="card full">
+      <h3>Case Similarity</h3>
+      {% if similar_cases %}
+      <table>
+        <thead>
+          <tr><th>Case</th><th>Target</th><th>Match</th><th>Why</th></tr>
+        </thead>
+        <tbody>
+          {% for s in similar_cases %}
+          <tr>
+            <td><a href="{{ url_for('view_case', case_id=s.case_id) }}">{{ s.title }}</a></td>
+            <td style="color: var(--muted);">{{ s.target }}</td>
+            <td style="color: var(--green); font-family: var(--mono);">{{ s.score_pct }}%</td>
+            <td class="reasons">{{ s.reasons | join(', ') }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <div class="empty-row">No similar cases found above threshold.</div>
+      {% endif %}
+    </div>
+
+    <div class="card full">
+      <h3>Notes</h3>
+      <div class="card-sub">
+        {{ notes_summary.total_notes }} note(s)
+        {% if notes_summary.authors %} · investigators: {{ notes_summary.authors | join(', ') }}{% endif %}
+      </div>
+
+      {% if notes_summary.latest %}
+      <div class="note-preview">
+        <div class="note-meta">
+          {{ notes_summary.latest.author }}
+          {% if notes_summary.latest.created_at %} · {{ notes_summary.latest.created_at }}{% endif %}
+        </div>
+        <div class="note-content">{{ notes_summary.latest.content }}</div>
+      </div>
+      {% else %}
+      <div class="empty-row">No notes yet.</div>
+      {% endif %}
+
+      <a href="{{ url_for('view_case', case_id=case.id) }}" class="btn btn-outline" style="margin-top: 1rem;">
+        View / Add Notes
+      </a>
+    </div>
+
+  </div>
+
+</main>
+
+</body>
+</html>

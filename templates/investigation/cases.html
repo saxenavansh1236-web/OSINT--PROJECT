@@ -1,0 +1,84 @@
+{% extends "admin_dashboard.html" %}
+{% block title %}Cases{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1>Case Management</h1>
+    <p class="subtle">Track investigations from scan to closure.</p>
+  </div>
+  <a href="{{ url_for('investigation.create_case') }}" class="btn btn-primary">+ New Case</a>
+</div>
+
+<div class="stat-cards">
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.total }}</div>
+    <div class="stat-label">Total Cases</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.open }}</div>
+    <div class="stat-label">Open</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.in_progress }}</div>
+    <div class="stat-label">In Progress</div>
+  </div>
+  <div class="stat-card">
+    <div class="stat-value">{{ stats.closed }}</div>
+    <div class="stat-label">Closed</div>
+  </div>
+  <div class="stat-card critical">
+    <div class="stat-value">{{ stats.critical }}</div>
+    <div class="stat-label">Critical Priority</div>
+  </div>
+</div>
+
+<form method="get" class="filter-bar">
+  <input type="text" name="q" placeholder="Search title, case #, tags..." value="{{ q }}">
+  <select name="status">
+    <option value="">All statuses</option>
+    {% for s in statuses %}
+      <option value="{{ s }}" {% if s == status %}selected{% endif %}>{{ s.replace('_',' ')|title }}</option>
+    {% endfor %}
+  </select>
+  <select name="priority">
+    <option value="">All priorities</option>
+    {% for p in priorities %}
+      <option value="{{ p }}" {% if p == priority %}selected{% endif %}>{{ p|title }}</option>
+    {% endfor %}
+  </select>
+  <button type="submit" class="btn btn-secondary">Filter</button>
+  <a href="{{ url_for('investigation.cases') }}" class="btn btn-ghost">Clear</a>
+</form>
+
+<div class="table-wrap">
+  <table class="data-table">
+    <thead>
+      <tr>
+        <th>Case #</th>
+        <th>Title</th>
+        <th>Status</th>
+        <th>Priority</th>
+        <th>Scans</th>
+        <th>Assigned To</th>
+        <th>Updated</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for c in cases %}
+      <tr onclick="window.location='{{ url_for('investigation.case_detail', case_id=c.id) }}'" class="row-link">
+        <td><span class="mono">{{ c.case_number }}</span></td>
+        <td>{{ c.title }}</td>
+        <td><span class="badge badge-status-{{ c.status }}">{{ c.status.replace('_',' ')|title }}</span></td>
+        <td><span class="badge badge-priority-{{ c.priority }}">{{ c.priority|title }}</span></td>
+        <td>{{ c.scans|length }}</td>
+        <td>{{ c.assigned_to or '—' }}</td>
+        <td>{{ c.updated_at.strftime('%Y-%m-%d %H:%M') if c.updated_at else '—' }}</td>
+      </tr>
+      {% else %}
+      <tr><td colspan="7" class="empty-row">No cases found. Create your first case to get started.</td></tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

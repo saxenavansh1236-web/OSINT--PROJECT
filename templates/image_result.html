@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Image Metadata Result — OSINT</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+<style>
+    *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+
+    body {
+        background:#0a0a0f;
+        color:#ccc;
+        font-family:'Courier New', monospace;
+        min-height:100vh;
+    }
+
+    nav {
+        background:#0f0f1a;
+        border-bottom:1px solid #1a2a1a;
+        padding:0 32px;
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        height:56px;
+    }
+    .brand { color:#00ff88; font-size:15px; letter-spacing:3px; font-weight:bold; text-decoration:none; }
+    .nav-links { display:flex; gap:4px; }
+    .nav-links a {
+        color:#555; text-decoration:none; font-size:11px;
+        letter-spacing:1px; padding:6px 14px; border-radius:4px;
+        text-transform:uppercase; transition:all 0.2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color:#00ff88; background:rgba(0,255,136,0.07); }
+
+    .page { max-width:800px; margin:0 auto; padding:40px 24px; }
+
+    .header-row {
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        margin-bottom:20px;
+        flex-wrap:wrap;
+        gap:12px;
+    }
+
+    h1 { color:#00ff88; font-size:18px; letter-spacing:3px; }
+
+    .filename-badge {
+        font-size:11px;
+        color:#4488ff;
+        background:rgba(68,136,255,0.1);
+        border:1px solid #1a2a1a;
+        padding:6px 14px;
+        border-radius:4px;
+        word-break:break-all;
+    }
+
+    .card {
+        background:#0f0f1a;
+        border:1px solid #1a2a1a;
+        border-radius:8px;
+        overflow:hidden;
+        margin-bottom:20px;
+    }
+
+    .card-header {
+        padding:14px 20px;
+        border-bottom:1px solid #1a2a1a;
+        background:#12121f;
+        font-size:11px;
+        letter-spacing:2px;
+        text-transform:uppercase;
+        color:#00ff88;
+    }
+
+    pre {
+        white-space:pre-wrap;
+        word-break:break-word;
+        padding:20px;
+        font-size:12px;
+        line-height:1.7;
+        color:#ccc;
+        max-height:600px;
+        overflow-y:auto;
+    }
+
+    .actions {
+        display:flex;
+        gap:10px;
+        flex-wrap:wrap;
+    }
+
+    .btn {
+        display:inline-block;
+        padding:10px 22px;
+        border-radius:6px;
+        font-family:inherit;
+        font-size:11px;
+        letter-spacing:2px;
+        text-transform:uppercase;
+        text-decoration:none;
+        cursor:pointer;
+        border:1px solid;
+        transition:background 0.2s;
+    }
+    .btn-primary {
+        background:#00ff88;
+        border-color:#00ff88;
+        color:#05080d;
+        font-weight:bold;
+    }
+    .btn-primary:hover { opacity:0.9; }
+    .btn-outline {
+        background:transparent;
+        color:#00ff88;
+        border-color:#00ff88;
+    }
+    .btn-outline:hover { background:rgba(0,255,136,0.08); }
+
+    .warn-note {
+        font-size:10px;
+        color:#666;
+        margin-top:16px;
+        letter-spacing:1px;
+    }
+
+    /* ── Shared card-body/kv-row/etc styles used by the Image Intelligence grid ── */
+    :root {
+        --bg:      #0a0a0f;
+        --surface: #0f0f1a;
+        --surface2:#12121f;
+        --border:  #1a2a1a;
+        --green:   #00ff88;
+        --red:     #ff3c3c;
+        --yellow:  #ffaa00;
+        --blue:    #4488ff;
+        --purple:  #aa44ff;
+        --cyan:    #00ccff;
+        --orange:  #ff6b35;
+        --muted:   #555;
+        --text:    #ccc;
+    }
+    .results-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; }
+    .full-width { grid-column: 1 / -1; }
+    .card-icon { font-size:14px; }
+    .card-title { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--green); }
+    .card-count { margin-left:auto; background:rgba(0,255,136,0.1); color:var(--green); border-radius:20px; padding:2px 10px; font-size:10px; letter-spacing:1px; }
+    .card-count.red    { background:rgba(255,60,60,0.1);  color:var(--red); }
+    .card-count.yellow { background:rgba(255,170,0,0.1);  color:var(--yellow); }
+    .card-count.blue   { background:rgba(68,136,255,0.1); color:var(--blue); }
+    .card-header { display:flex; align-items:center; gap:10px; }
+    .card-body { padding:16px 20px; }
+    .kv-row { display:flex; gap:12px; padding:6px 0; border-bottom:1px solid #0d0d18; font-size:12px; }
+    .kv-row:last-child { border-bottom:none; }
+    .kv-key { color:var(--muted); min-width:130px; flex-shrink:0; font-size:10px; letter-spacing:1px; text-transform:uppercase; padding-top:1px; }
+    .kv-val { color:var(--text); word-break:break-all; }
+    .ip-display { font-size:22px; color:var(--blue); letter-spacing:2px; padding:12px 0 16px; }
+    .no-data { color:var(--muted); font-size:12px; letter-spacing:1px; padding:8px 0; }
+    .dns-section-title { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:6px; padding-bottom:4px; border-bottom:1px solid var(--border); }
+    .dns-record { font-size:11px; color:var(--text); padding:3px 0; word-break:break-all; }
+    .score-bar { height:6px; background:var(--border); border-radius:3px; margin:8px 0; }
+    .score-fill { height:100%; border-radius:3px; transition:width 0.4s; }
+    .risk-factor-item { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:8px 12px; margin-bottom:6px; font-size:11px; }
+    .rf-name { color:var(--text); }
+    .rf-meta { display:flex; gap:8px; margin-top:3px; flex-wrap:wrap; }
+    .rf-pts  { color:var(--orange); font-size:10px; }
+    .rec-item { font-size:11px; color:var(--text); padding:5px 0; border-bottom:1px solid #0d0d18; display:flex; gap:6px; }
+    .rec-item:last-child { border-bottom:none; }
+    .rec-arrow { color:var(--green); flex-shrink:0; }
+    .breach-item { border-radius:6px; padding:10px 14px; margin-bottom:8px; font-size:12px; border-left:3px solid var(--red); background:rgba(255,60,60,0.05); }
+    .breach-item.critical { border-left-color:#ff0000; background:rgba(255,0,0,0.08); }
+    .breach-item.high     { border-left-color:var(--red);    background:rgba(255,60,60,0.06); }
+    .breach-item.medium   { border-left-color:var(--yellow); background:rgba(255,170,0,0.05); }
+    .breach-name { color:var(--text); font-weight:bold; font-size:12px; }
+    .breach-meta { display:flex; gap:12px; margin-top:4px; flex-wrap:wrap; }
+    .breach-tag  { font-size:10px; letter-spacing:1px; padding:1px 7px; border-radius:3px; }
+    .breach-source-tag { color:var(--blue); background:rgba(68,136,255,0.12); }
+    .breach-date { color:var(--muted); font-size:10px; }
+    .dork-item { display:flex; align-items:flex-start; gap:10px; padding:7px 0; border-bottom:1px solid #0d0d18; }
+    .dork-item:last-child { border-bottom:none; }
+    .dork-desc { font-size:11px; color:var(--text); flex:1; }
+    .dork-cat-badge { font-size:9px; padding:1px 7px; border-radius:3px; letter-spacing:1px; white-space:nowrap; flex-shrink:0; }
+    .dork-default { color:var(--muted); background:rgba(85,85,85,0.12); }
+    .dork-link { font-size:10px; color:var(--blue); text-decoration:none; white-space:nowrap; flex-shrink:0; }
+    .dork-link:hover { color:var(--green); text-decoration:underline; }
+    .robots-raw { font-size:10px; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:10px; white-space:pre-wrap; word-break:break-all; max-height:180px; overflow-y:auto; margin-top:8px; }
+    .pattern-item { display:flex; align-items:center; gap:8px; font-size:11px; padding:4px 0; border-bottom:1px solid #0d0d18; }
+    .pattern-item:last-child { border-bottom:none; }
+    .pat-fmt  { color:var(--text); flex:1; font-size:10px; word-break:break-all; }
+    .pat-conf { font-size:9px; padding:1px 6px; border-radius:3px; letter-spacing:1px; }
+    .conf-high   { color:var(--green);  background:rgba(0,255,136,0.1); }
+    .conf-medium { color:var(--yellow); background:rgba(255,170,0,0.1); }
+    .conf-low    { color:var(--muted);  background:rgba(85,85,85,0.1); }
+    .tech-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+    .tech-tag  { font-size:10px; letter-spacing:1px; padding:2px 9px; border-radius:3px; text-transform:uppercase; }
+    .tech-cms       { color:var(--purple); background:rgba(170,68,255,0.12); }
+    .tech-framework { color:var(--green);  background:rgba(0,255,136,0.10); }
+    .tech-ecommerce { color:var(--orange); background:rgba(255,107,53,0.12); }
+    .employee-item { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:8px; font-size:12px; }
+    .emp-name { color:var(--text); font-weight:bold; }
+    .emp-meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+    .emp-tag  { font-size:9px; padding:1px 7px; border-radius:3px; letter-spacing:1px; }
+    .emp-gh { color:var(--green);  background:rgba(0,255,136,0.1); }
+    .emp-ct { color:var(--purple); background:rgba(170,68,255,0.1); }
+    .path-item { display:flex; align-items:flex-start; gap:8px; padding:5px 0; font-size:11px; border-bottom:1px solid #0d0d18; }
+    .path-item:last-child { border-bottom:none; }
+    .path-dot  { color:var(--muted); flex-shrink:0; }
+    .path-dot.sensitive { color:var(--red); }
+    .path-str  { color:var(--text); word-break:break-all; flex:1; }
+    .path-src  { font-size:9px; color:var(--muted); letter-spacing:1px; margin-left:auto; white-space:nowrap; }
+    .api-error-note { font-size:10px; color:var(--muted); padding:6px 10px; background:rgba(85,85,85,0.1); border-radius:4px; border-left:2px solid var(--muted); margin-top:10px; }
+    .tag-pill { display:inline-block; font-size:9px; letter-spacing:1px; padding:1px 7px; border-radius:3px; text-transform:uppercase; }
+    .vt-verdict { display:flex; align-items:center; gap:16px; padding:14px 0 18px; }
+    .vt-big { font-size:40px; font-weight:bold; line-height:1; }
+    .vt-clean { color:var(--green); }
+    .vt-danger { color:var(--red); }
+    .warn-flag { color:var(--yellow); font-size:10px; padding:2px 0; display:flex; align-items:center; gap:4px; }
+    .data-item { display:flex; align-items:flex-start; gap:8px; padding:7px 0; border-bottom:1px solid #0d0d18; font-size:12px; }
+    .data-item:last-child { border-bottom:none; }
+    .data-dot { color:var(--green); margin-top:1px; flex-shrink:0; }
+    .data-val { color:var(--text); word-break:break-all; }
+</style>
+</head>
+<body>
+
+<nav>
+    <a href="/" class="brand">⬡ OSINT</a>
+    <div class="nav-links">
+        <a href="/">Scanner</a>
+        <a href="/image-osint" class="active">Image OSINT</a>
+    </div>
+</nav>
+
+<div class="page">
+
+    <div class="header-row">
+        <h1>📷 METADATA RESULT</h1>
+        {% if filename %}<span class="filename-badge">{{ filename }}</span>{% endif %}
+    </div>
+
+    <div class="card">
+    <div class="card-header">📷 Image Intelligence Summary</div>
+    <div style="padding:20px;font-size:13px;line-height:2.2">
+        <p><b style="color:#00ff88">Camera:</b> {{ metadata.get("Camera Model Name", "—") }}</p>
+        <p><b style="color:#00ff88">Make:</b> {{ metadata.get("Make", "—") }}</p>
+        <p><b style="color:#00ff88">Lens:</b> {{ metadata.get("Lens Model", "—") }}</p>
+        <p><b style="color:#00ff88">Date Taken:</b> {{ metadata.get("Date/Time Original", "—") }}</p>
+        <p><b style="color:#00ff88">ISO:</b> {{ metadata.get("ISO", "—") }}</p>
+        <p><b style="color:#00ff88">Aperture:</b> f/{{ metadata.get("F Number", metadata.get("Aperture", "—")) }}</p>
+        <p><b style="color:#00ff88">Shutter Speed:</b> {{ metadata.get("Shutter Speed", metadata.get("Exposure Time", "—")) }}</p>
+        <p><b style="color:#00ff88">Focal Length:</b> {{ metadata.get("Focal Length", "—") }}
+            {% if metadata.get("Focal Length In 35mm Format") %}
+            (35mm equiv: {{ metadata.get("Focal Length In 35mm Format") }})
+            {% endif %}
+        </p>
+        <p><b style="color:#00ff88">Resolution:</b>
+            {{ metadata.get("Image Width", "—") }} × {{ metadata.get("Image Height", "—") }}
+            {% if metadata.get("Megapixels") %} ({{ metadata.get("Megapixels") }} MP){% endif %}
+        </p>
+        <p><b style="color:#00ff88">Flash:</b> {{ metadata.get("Flash", "—") }}</p>
+        <p><b style="color:#00ff88">Digital Zoom:</b> {{ metadata.get("Digital Zoom Ratio", "—") }}</p>
+        <p><b style="color:#00ff88">White Balance:</b> {{ metadata.get("White Balance", "—") }}</p>
+        <p><b style="color:#00ff88">Light Source:</b> {{ metadata.get("Light Source", "—") }}</p>
+        <p><b style="color:#00ff88">Orientation:</b> {{ metadata.get("Orientation", "—") }}</p>
+
+        {% if metadata.get("GPS Position") or metadata.get("GPS Latitude") %}
+        <p><b style="color:#ff3c3c">⚠ GPS Location:</b>
+            {{ metadata.get("GPS Position", "") }}
+            {{ metadata.get("GPS Latitude", "") }} {{ metadata.get("GPS Longitude", "") }}
+        </p>
+        {% else %}
+        <p><b style="color:#666">GPS Location:</b> <span style="color:#666">Not present in this image</span></p>
+        {% endif %}
+    </div>
+</div>
+
+<div class="card">
+    <details>
+        <summary class="card-header" style="cursor:pointer;list-style:none">
+            🔎 Show All Raw Metadata ({{ metadata|length }} fields)
+        </summary>
+        <div style="padding:0 20px 20px">
+            <table style="width:100%;font-size:11px;border-collapse:collapse;margin-top:10px">
+                {% for key, value in metadata.items() %}
+                <tr style="border-bottom:1px solid #1a2a1a">
+                    <td style="padding:6px 10px 6px 0;color:#4488ff;white-space:nowrap;vertical-align:top">{{ key }}</td>
+                    <td style="padding:6px 0;color:#ccc;word-break:break-word">{{ value }}</td>
+                </tr>
+                {% endfor %}
+            </table>
+
+            <div class="actions" style="margin-top:16px">
+                <button type="button" class="btn btn-outline" onclick="copyMetadataJSON()">📋 Copy as JSON</button>
+                <button type="button" class="btn btn-outline" onclick="downloadMetadataJSON()">⬇ Download JSON</button>
+            </div>
+            <span id="copyConfirm" style="display:none;color:#00ff88;font-size:10px;letter-spacing:1px;margin-left:10px">✓ Copied to clipboard</span>
+        </div>
+    </details>
+</div>
+
+    <div class="actions">
+        <a href="/image-osint" class="btn btn-primary">Upload Another</a>
+        <a href="/" class="btn btn-outline">Back to Scanner</a>
+    </div>
+
+    <div class="warn-note">
+        ⓘ The uploaded image was processed and deleted from the server. This data was not stored.
+    </div>
+
+{# ============================================================================
+   IMAGE INTELLIGENCE SECTION — everything below is one single
+   {% if image_intel %} ... {% endif %} block wrapping ONE results-grid div.
+   Do not close either of them early — all sub-cards live inside.
+   ============================================================================ #}
+{% if image_intel %}
+<div class="results-grid" style="margin-top:24px">
+
+    {# ══ IMAGE HASHES ══ #}
+    {% set h = image_intel.get("hashes") %}
+    {% if h and not h.get("error") %}
+    <div class="card">
+        <div class="card-header"><span class="card-icon">#️⃣</span><span class="card-title">Image Hashes</span></div>
+        <div class="card-body">
+            <div class="kv-row"><span class="kv-key">MD5</span><span class="kv-val" style="font-size:10px">{{ h.get("md5","—") }}</span></div>
+            <div class="kv-row"><span class="kv-key">SHA256</span><span class="kv-val" style="font-size:10px">{{ h.get("sha256","—") }}</span></div>
+            <div class="kv-row"><span class="kv-key">pHash</span><span class="kv-val" style="font-size:10px">{{ h.get("phash","—") }}</span></div>
+            <div class="kv-row"><span class="kv-key">dHash</span><span class="kv-val" style="font-size:10px">{{ h.get("dhash","—") }}</span></div>
+            <div class="kv-row"><span class="kv-key">aHash</span><span class="kv-val" style="font-size:10px">{{ h.get("ahash","—") }}</span></div>
+            <div class="kv-row"><span class="kv-key">wHash</span><span class="kv-val" style="font-size:10px">{{ h.get("whash","—") }}</span></div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ DUPLICATE DETECTION ══ #}
+    {% set dup = image_intel.get("duplicates") %}
+    {% if dup and not dup.get("error") %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🪞</span><span class="card-title">Duplicate Detection</span>
+            <span class="card-count {% if dup.get('matches') %}yellow{% endif %}">
+                {% if dup.get("matches") %}{{ dup.get("matches")|length }} match(es){% else %}Unique{% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            <div style="font-size:10px;color:var(--muted);margin-bottom:10px">
+                {{ dup.get("total_indexed",0) }} images indexed so far
+                {% if dup.get("is_new") %} · first time seeing this exact file{% endif %}
+            </div>
+            {% if dup.get("matches") %}
+                {% for m in dup.get("matches",[]) %}
+                <div class="breach-item {% if m.get('similarity_label') == 'identical' %}critical{% elif m.get('similarity_label') == 'near_duplicate' %}high{% else %}medium{% endif %}">
+                    <div class="breach-name">{{ m.get("filename","?") }}</div>
+                    <div class="breach-meta">
+                        <span class="breach-tag breach-source-tag">{{ m.get("similarity_label","?") | upper }}</span>
+                        <span class="breach-tag" style="color:var(--muted)">distance {{ m.get("distance","?") }}</span>
+                        <span class="breach-date">first seen {{ m.get("first_seen","?") }}</span>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+            <p class="no-data" style="color:var(--green)">✓ No visually similar images indexed previously.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ QR / BARCODE ══ #}
+    {% set qr = image_intel.get("barcodes") %}
+    {% if qr and not qr.get("error") %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">▦</span><span class="card-title">QR / Barcode</span>
+            {% if qr.get("total_found",0) > 0 %}<span class="card-count">{{ qr.get("total_found") }} found</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if qr.get("codes") %}
+                {% for c in qr.get("codes",[]) %}
+                <div class="dork-item">
+                    <span class="dork-cat-badge dork-default">{{ c.get("type","?") }}</span>
+                    <span class="dork-desc" style="word-break:break-all">{{ c.get("data","") }}</span>
+                    {% if c.get("is_url") %}<a href="{{ c.get('data') }}" target="_blank" rel="noopener" class="dork-link">Open ↗</a>{% endif %}
+                </div>
+                {% endfor %}
+            {% else %}
+            <p class="no-data">No QR codes or barcodes detected.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ OCR TEXT EXTRACTION ══ #}
+    {% set ocr = image_intel.get("ocr") %}
+    {% if ocr and not ocr.get("error") %}
+    <div class="card full-width">
+        <div class="card-header">
+            <span class="card-icon">🔤</span><span class="card-title">Extracted Text (OCR)</span>
+            {% if ocr.get("lines") %}<span class="card-count">{{ ocr.get("lines")|length }} lines</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if ocr.get("full_text") %}
+            <div class="robots-raw" style="max-height:200px">{{ ocr.get("full_text") }}</div>
+            <div class="dns-section-title" style="margin-top:12px">Per-line confidence</div>
+            {% for line in ocr.get("lines",[])[:20] %}
+            <div class="pattern-item">
+                <span class="pat-fmt">{{ line.get("text","") }}</span>
+                <span class="pat-conf {% if line.get('confidence',0) >= 0.7 %}conf-high{% elif line.get('confidence',0) >= 0.45 %}conf-medium{% else %}conf-low{% endif %}">
+                    {{ (line.get("confidence",0) * 100) | round | int }}%
+                </span>
+            </div>
+            {% endfor %}
+            {% else %}
+            <p class="no-data">No readable text detected in this image.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ OBJECT DETECTION ══ #}
+    {% set obj = image_intel.get("objects") %}
+    {% if obj and not obj.get("error") %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">📦</span><span class="card-title">Object Detection</span>
+            <span class="card-count {% if obj.get('total_found',0) > 0 %}blue{% endif %}">{{ obj.get("total_found",0) }} objects</span>
+        </div>
+        <div class="card-body">
+            {% if obj.get("label_counts") %}
+            <div class="tech-tags" style="margin-bottom:12px">
+                {% for label, count in obj.get("label_counts",{}).items() %}
+                <span class="tech-tag {% if label == 'person' %}tech-cms{% elif label in ['knife','gun','scissors'] %}tech-ecommerce{% else %}tech-framework{% endif %}">{{ label }} × {{ count }}</span>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% for o in obj.get("objects",[])[:15] %}
+            <div class="employee-item" style="{% if o.get('sensitive') %}border-left:3px solid var(--red){% endif %}">
+                <div class="emp-name">{{ o.get("label","?") }} {% if o.get("sensitive") %}⚠{% endif %}</div>
+                <div class="emp-meta">
+                    <span class="emp-tag" style="color:var(--green);background:rgba(0,255,136,0.1)">{{ (o.get("confidence",0) * 100) | round | int }}% confidence</span>
+                </div>
+            </div>
+            {% endfor %}
+            {% if not obj.get("objects") %}<p class="no-data">No objects detected above the confidence threshold.</p>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ FACE DETECTION ══ #}
+    {% set faces = image_intel.get("faces") %}
+    {% if faces and not faces.get("error") %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🙂</span><span class="card-title">Face Detection</span>
+            <span class="card-count {% if faces.get('total_faces',0) > 0 %}blue{% endif %}">{{ faces.get("total_faces",0) }} face(s)</span>
+        </div>
+        <div class="card-body">
+            <div class="api-error-note" style="margin-bottom:10px">ℹ {{ faces.get("note","Detection only — no identity matching performed.") }}</div>
+            {% for f in faces.get("faces",[])[:10] %}
+            <div class="kv-row">
+                <span class="kv-key">Face #{{ loop.index }}</span>
+                <span class="kv-val">x={{ f.get("x") }}, y={{ f.get("y") }}, {{ f.get("width") }}×{{ f.get("height") }}px</span>
+            </div>
+            {% endfor %}
+            {% if not faces.get("faces") %}<p class="no-data">No faces detected.</p>{% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ LANDMARK DETECTION ══ #}
+    {% set lm = image_intel.get("landmark") %}
+    {% if lm %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🗺️</span><span class="card-title">Landmark Detection</span>
+            <span class="card-count {% if lm.get('source') == 'unconfigured' %}{% else %}blue{% endif %}" style="{% if lm.get('source') == 'unconfigured' %}color:var(--muted){% endif %}">
+                {% if lm.get("available") %}{{ lm.get("landmarks",[])|length }} found{% else %}No API Key{% endif %}
+            </span>
+        </div>
+        <div class="card-body">
+            {% if lm.get("available") and lm.get("landmarks") %}
+                {% for l in lm.get("landmarks",[]) %}
+                <div class="kv-row">
+                    <span class="kv-key">{{ l.get("description","?") }}</span>
+                    <span class="kv-val">
+                        {{ (l.get("confidence",0) * 100) | round | int }}% confidence
+                        {% if l.get("latitude") %} · {{ "%.4f"|format(l.get("latitude")) }}, {{ "%.4f"|format(l.get("longitude")) }}{% endif %}
+                    </span>
+                </div>
+                {% endfor %}
+            {% else %}
+            <div class="api-error-note">ℹ {{ lm.get("note") or lm.get("error","Landmark detection unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ REVERSE IMAGE SEARCH ══ #}
+    {% set rs = image_intel.get("reverse_search") %}
+    {% if rs and rs.get("links") %}
+    <div class="card full-width">
+        <div class="card-header"><span class="card-icon">🔍</span><span class="card-title">Reverse Image Search</span></div>
+        <div class="card-body">
+            <div class="api-error-note" style="margin-bottom:12px">ℹ {{ rs.get("disclaimer","") }}</div>
+            <div style="display:flex;flex-wrap:wrap;gap:8px">
+                {% for l in rs.get("links",[]) %}
+                <a href="{{ l.get('url') }}" target="_blank" rel="noopener" class="export-btn blue" style="background:transparent;border:1px solid var(--blue);color:var(--blue);border-radius:4px;padding:8px 16px;font-size:11px;text-decoration:none;letter-spacing:1px;text-transform:uppercase">{{ l.get("engine") }} ↗</a>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ GPS LOCATION (map) ══ #}
+    {% set gps = image_intel.get("gps") %}
+    {% if gps and gps.get("has_gps") %}
+    <div class="card">
+        <div class="card-header"><span class="card-icon">📍</span><span class="card-title">GPS Location</span></div>
+        <div class="card-body">
+            <div class="kv-row"><span class="kv-key">Coordinates</span><span class="kv-val">{{ gps.get("latitude") }}, {{ gps.get("longitude") }}</span></div>
+            {% if gps.get("altitude") %}<div class="kv-row"><span class="kv-key">Altitude</span><span class="kv-val">{{ gps.get("altitude") }} m</span></div>{% endif %}
+            {% if gps.get("direction") %}<div class="kv-row"><span class="kv-key">Direction</span><span class="kv-val">{{ gps.get("direction") }}°</span></div>{% endif %}
+            <a href="{{ gps.get('maps_url') }}" target="_blank" rel="noopener" class="btn btn-outline" style="margin-top:8px;display:inline-block;padding:8px 16px;font-size:10px">Open in Google Maps ↗</a>
+            <div id="gps-map" style="height:250px;border-radius:6px;margin-top:12px;border:1px solid var(--border)"></div>
+        </div>
+    </div>
+    {% elif gps and gps.get("available") == false %}
+    <div class="card">
+        <div class="card-header"><span class="card-icon">📍</span><span class="card-title">GPS Location</span></div>
+        <div class="card-body">
+            <div class="api-error-note">⚠ {{ gps.get("error","GPS extraction failed.") }}</div>
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ METADATA PRIVACY RISK ══ #}
+    {% set mr = image_intel.get("metadata_risk") %}
+    {% if mr and mr.get("available") %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">⚠️</span><span class="card-title">Metadata Risk</span>
+            <span class="card-count {% if mr.get('level') in ['High','Critical'] %}red{% elif mr.get('level')=='Medium' %}yellow{% endif %}">
+                {{ mr.get("score",0) }}/100 · {{ mr.get("level","Low") }}
+            </span>
+        </div>
+        <div class="card-body">
+            <div class="score-bar" style="height:8px;margin-bottom:14px">
+                <div class="score-fill" style="width:{{ mr.get('score',0) }}%;background:{% if mr.get('level') in ['High','Critical'] %}var(--red){% elif mr.get('level')=='Medium' %}var(--yellow){% else %}var(--green){% endif %}"></div>
+            </div>
+            {% for f in mr.get("factors",[]) %}
+            <div class="risk-factor-item">
+                <div class="rf-name">{{ f.get("label") }}</div>
+                <div class="rf-meta"><span class="rf-pts">+{{ f.get("points") }} pts</span><span style="color:var(--muted);font-size:10px">{{ f.get("category") }}</span></div>
+            </div>
+            {% endfor %}
+            {% if not mr.get("factors") %}<p class="no-data" style="color:var(--green)">✓ No high-risk identifying fields detected.</p>{% endif %}
+            <div class="dns-section-title" style="margin-top:10px">Recommendations</div>
+            {% for r in mr.get("recommendations",[]) %}<div class="rec-item"><span class="rec-arrow">→</span><span>{{ r }}</span></div>{% endfor %}
+        </div>
+    </div>
+    {% elif mr %}
+    <div class="card">
+        <div class="card-header"><span class="card-icon">⚠️</span><span class="card-title">Metadata Risk</span></div>
+        <div class="card-body"><div class="api-error-note">⚠ {{ mr.get("error","Metadata risk assessment failed.") }}</div></div>
+    </div>
+    {% endif %}
+
+    {# ══════════════════════════════════════════════════════════════════
+       10 ADDITIONAL IMAGE INTELLIGENCE FEATURES
+       ══════════════════════════════════════════════════════════════════ #}
+
+    {# ══ AI IMAGE CAPTION ══ #}
+    {% set cap = image_intel.get("caption") %}
+    {% if cap %}
+    <div class="card full-width">
+        <div class="card-header">
+            <span class="card-icon">📝</span><span class="card-title">AI Image Caption</span>
+            {% if not cap.get("available") %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if cap.get("available") %}
+                <p style="font-size:13px;color:var(--text);line-height:1.6;margin-bottom:10px">"{{ cap.get("caption","") }}"</p>
+                <div style="font-size:10px;color:var(--muted)">Model: {{ cap.get("model_used","?") }}</div>
+                <div class="api-error-note" style="margin-top:8px">ℹ {{ cap.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ cap.get("error","AI captioning unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ AI-GENERATED IMAGE DETECTION ══ #}
+    {% set aig = image_intel.get("ai_generated") %}
+    {% if aig %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🤖</span><span class="card-title">AI-Generated Detection</span>
+            {% if aig.get("available") %}
+            <span class="card-count {% if aig.get('is_ai_generated') %}red{% else %}{% endif %}">
+                {{ aig.get("label","UNKNOWN") }}
+            </span>
+            {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if aig.get("available") %}
+                <div class="vt-verdict">
+                    <div class="vt-big {% if aig.get('is_ai_generated') %}vt-danger{% else %}vt-clean{% endif %}">
+                        {% if aig.get("is_ai_generated") %}⚠{% else %}✓{% endif %}
+                    </div>
+                    <div>
+                        <div style="font-size:13px;color:{% if aig.get('is_ai_generated') %}var(--red){% else %}var(--green){% endif %};letter-spacing:1px">
+                            {{ aig.get("label","UNKNOWN") }}
+                        </div>
+                        <div style="font-size:10px;color:var(--muted);margin-top:4px">Confidence: {{ (aig.get("confidence",0) * 100) | round | int }}%</div>
+                    </div>
+                </div>
+                <span class="tag-pill" style="{% if aig.get('source') == 'model' %}color:var(--green);background:rgba(0,255,136,0.1){% else %}color:var(--yellow);background:rgba(255,170,0,0.1){% endif %}">
+                    {{ "MODEL-BASED" if aig.get("source") == "model" else "HEURISTIC ESTIMATE" }}
+                </span>
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ aig.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ aig.get("error","AI-generated detection unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ ELA / FORGERY DETECTION ══ #}
+    {% set forg = image_intel.get("forgery") %}
+    {% if forg %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🩻</span><span class="card-title">ELA / Forgery Detection</span>
+            {% if forg.get("available") %}
+            <span class="card-count {% if forg.get('forgery_likelihood') == 'HIGH' %}red{% elif forg.get('forgery_likelihood') == 'MEDIUM' %}yellow{% else %}{% endif %}">
+                {{ forg.get("forgery_likelihood","LOW") }}
+            </span>
+            {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if forg.get("available") %}
+                <div class="kv-row"><span class="kv-key">Mean Error Level</span><span class="kv-val">{{ forg.get("mean_ela",0) }}</span></div>
+                <div class="kv-row"><span class="kv-key">Max Error Level</span><span class="kv-val">{{ forg.get("max_ela",0) }}</span></div>
+                {% if forg.get("suspicious_regions") %}
+                <div class="dns-section-title" style="margin-top:10px">Suspicious Regions</div>
+                {% for r in forg.get("suspicious_regions",[]) %}
+                <div class="path-item">
+                    <span class="path-dot sensitive">⚠</span>
+                    <span class="path-str">{{ r.get("region","?") }}</span>
+                    <span class="path-src">error {{ r.get("avg_error_level","?") }}</span>
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="no-data" style="color:var(--green)">✓ No abnormal compression regions found.</p>
+                {% endif %}
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ forg.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ forg.get("error","ELA analysis unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ FACE ATTRIBUTES ══ #}
+    {% set fa = image_intel.get("face_attributes") %}
+    {% if fa %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🧑</span><span class="card-title">Face Attributes</span>
+            {% if fa.get("available") %}<span class="card-count">{{ fa.get("faces",[])|length }} face(s)</span>
+            {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if fa.get("available") %}
+                {% for f in fa.get("faces",[]) %}
+                <div class="employee-item">
+                    <div class="emp-name">Face #{{ loop.index }}</div>
+                    <div class="emp-meta">
+                        {% if f.get("age") %}<span class="emp-tag emp-ct">Age ~{{ f.get("age") }}</span>{% endif %}
+                        {% if f.get("dominant_emotion") %}<span class="emp-tag emp-gh">{{ f.get("dominant_emotion") | capitalize }}</span>{% endif %}
+                        {% if f.get("glasses_detected") is not none %}
+                        <span class="emp-tag" style="{% if f.get('glasses_detected') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--muted);background:rgba(85,85,85,0.12){% endif %}">
+                            {{ "Glasses" if f.get("glasses_detected") else "No Glasses" }}
+                        </span>
+                        {% endif %}
+                        {% if f.get("mask_detected") is not none %}
+                        <span class="emp-tag" style="{% if f.get('mask_detected') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--muted);background:rgba(85,85,85,0.12){% endif %}">
+                            {{ "Mask" if f.get("mask_detected") else "No Mask" }}
+                        </span>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+                {% if not fa.get("faces") %}<p class="no-data">No faces detected.</p>{% endif %}
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ fa.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ fa.get("error","Face attribute analysis unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ IMAGE QUALITY ANALYSIS ══ #}
+    {% set q = image_intel.get("quality") %}
+    {% if q %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🔬</span><span class="card-title">Image Quality</span>
+            {% if q.get("available") %}
+            <span class="card-count {% if q.get('overall_quality_score',100) < 50 %}red{% elif q.get('overall_quality_score',100) < 75 %}yellow{% endif %}">
+                {{ q.get("overall_quality_score",0) }}/100
+            </span>
+            {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if q.get("available") %}
+                <div class="score-bar" style="height:8px;margin-bottom:14px">
+                    <div class="score-fill" style="width:{{ q.get('overall_quality_score',0) }}%;background:{% if q.get('overall_quality_score',0) < 50 %}var(--red){% elif q.get('overall_quality_score',0) < 75 %}var(--yellow){% else %}var(--green){% endif %}"></div>
+                </div>
+                <div class="kv-row"><span class="kv-key">Resolution</span><span class="kv-val">{{ q.get("width") }} × {{ q.get("height") }} ({{ q.get("resolution_class","?") }})</span></div>
+                <div class="kv-row"><span class="kv-key">Megapixels</span><span class="kv-val">{{ q.get("megapixels",0) }} MP</span></div>
+                <div class="kv-row"><span class="kv-key">Sharpness</span><span class="kv-val" style="color:{% if q.get('is_blurry') %}var(--red){% else %}var(--green){% endif %}">{{ q.get("sharpness_score",0) }} {% if q.get("is_blurry") %}(blurry){% endif %}</span></div>
+                <div class="kv-row"><span class="kv-key">Brightness</span><span class="kv-val">{{ q.get("brightness",0) }} ({{ q.get("exposure","normal") }})</span></div>
+                <div class="kv-row"><span class="kv-key">Contrast</span><span class="kv-val">{{ q.get("contrast",0) }}</span></div>
+                <div class="kv-row"><span class="kv-key">Noise Estimate</span><span class="kv-val">{{ q.get("noise_estimate",0) }}</span></div>
+                {% if q.get("warnings") %}
+                <div style="margin-top:10px">
+                    {% for w in q.get("warnings",[]) %}<div class="warn-flag">⚠ {{ w }}</div>{% endfor %}
+                </div>
+                {% endif %}
+            {% else %}
+                <div class="api-error-note">⚠ {{ q.get("error","Image quality analysis unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ COLOR PALETTE ══ #}
+    {% set cp = image_intel.get("color_palette") %}
+    {% if cp %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🎨</span><span class="card-title">Color Palette</span>
+            {% if not cp.get("available") %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if cp.get("available") %}
+                <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap">
+                    {% for hex in cp.get("palette_swatch_hexes",[]) %}
+                    <div style="width:36px;height:36px;border-radius:6px;background:{{ hex }};border:1px solid var(--border)" title="{{ hex }}"></div>
+                    {% endfor %}
+                </div>
+                {% for c in cp.get("dominant_colors",[])[:6] %}
+                <div class="kv-row">
+                    <span class="kv-key">
+                        <span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:{{ c.get('hex') }};margin-right:6px;vertical-align:middle"></span>
+                        {{ c.get("hex") }}
+                    </span>
+                    <span class="kv-val">{{ c.get("percentage") }}%</span>
+                </div>
+                {% endfor %}
+                <div class="kv-row"><span class="kv-key">Average Color</span><span class="kv-val">{{ cp.get("average_color","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">Brightness</span><span class="kv-val">{{ cp.get("brightness",0) }}/255</span></div>
+                <div class="kv-row"><span class="kv-key">Grayscale</span><span class="kv-val">{{ "Yes" if cp.get("is_grayscale") else "No" }}</span></div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ cp.get("error","Color palette extraction unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ LOGO & BRAND DETECTION ══ #}
+    {% set logos = image_intel.get("logos") %}
+    {% if logos %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🏷️</span><span class="card-title">Logo & Brand Detection</span>
+            {% if logos.get("available") %}<span class="card-count {% if logos.get('detections') %}blue{% endif %}">{{ logos.get("detections",[])|length }} found</span>
+            {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if logos.get("available") %}
+                {% if logos.get("detections") %}
+                    {% for d in logos.get("detections",[]) %}
+                    <div class="pattern-item">
+                        <span class="pat-fmt">{{ d.get("brand","?") }}</span>
+                        <span class="pat-conf {% if d.get('confidence',0) >= 0.7 %}conf-high{% elif d.get('confidence',0) >= 0.4 %}conf-medium{% else %}conf-low{% endif %}">
+                            {{ (d.get("confidence",0) * 100) | round | int }}%
+                        </span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <p class="no-data">No known brand logos detected.</p>
+                {% endif %}
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ logos.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ logos.get("error","Logo detection unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ VEHICLE MAKE/MODEL DETECTION ══ #}
+    {% set veh = image_intel.get("vehicle") %}
+    {% if veh %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🚗</span><span class="card-title">Vehicle Make / Model</span>
+            {% if not veh.get("available") %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if veh.get("available") %}
+                {% if veh.get("top_prediction") %}
+                <div class="ip-display" style="font-size:18px">{{ veh.get("top_prediction") }}</div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:12px">{{ (veh.get("confidence",0) * 100) | round | int }}% confidence</div>
+                {% endif %}
+                {% for p in veh.get("predictions",[])[1:5] %}
+                <div class="pattern-item">
+                    <span class="pat-fmt">{{ p.get("make_model","?") }}</span>
+                    <span class="pat-conf conf-low">{{ (p.get("confidence",0) * 100) | round | int }}%</span>
+                </div>
+                {% endfor %}
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ veh.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ veh.get("error","Vehicle detection unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ LICENSE PLATE OCR ══ #}
+    {% set plate = image_intel.get("license_plate") %}
+    {% if plate %}
+    <div class="card">
+        <div class="card-header">
+            <span class="card-icon">🔢</span><span class="card-title">License Plate OCR</span>
+            {% if plate.get("available") %}<span class="card-count {% if plate.get('plates_found') %}yellow{% endif %}">{{ plate.get("plates_found",[])|length }} found</span>
+            {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if plate.get("available") %}
+                {% if plate.get("plates_found") %}
+                    {% for p in plate.get("plates_found",[]) %}
+                    <div class="breach-item medium">
+                        <div class="breach-name" style="font-family:'Courier New',monospace;letter-spacing:2px">{{ p.get("text","?") }}</div>
+                        <div class="breach-meta">
+                            <span class="breach-tag breach-source-tag">{{ (p.get("confidence",0) * 100) | round | int }}% conf</span>
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <p class="no-data">No license plates detected.</p>
+                {% endif %}
+                <div style="font-size:10px;color:var(--muted);margin-top:8px">Engine: {{ plate.get("ocr_engine","—") }}</div>
+                <div class="api-error-note" style="margin-top:8px">ℹ {{ plate.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ plate.get("error","License plate OCR unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ SIMILARITY SEARCH ══ #}
+    {% set sim = image_intel.get("similarity_search") %}
+    {% if sim %}
+    <div class="card full-width">
+        <div class="card-header">
+            <span class="card-icon">🔗</span><span class="card-title">Similarity Search</span>
+            {% if sim.get("available") %}<span class="card-count {% if sim.get('matches') %}yellow{% endif %}">{{ sim.get("matches",[])|length }} similar</span>
+            {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if sim.get("available") %}
+                <div style="font-size:10px;color:var(--muted);margin-bottom:10px">{{ sim.get("index_size",0) }} images indexed on this instance</div>
+                {% if sim.get("matches") %}
+                    {% for m in sim.get("matches",[]) %}
+                    <div class="kv-row">
+                        <span class="kv-key">{{ m.get("filename","?") }}</span>
+                        <span class="kv-val">{{ m.get("similarity_percent",0) }}% similar · first seen {{ m.get("first_seen","?") }}</span>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <p class="no-data" style="color:var(--green)">✓ No visually similar images found in the index.</p>
+                {% endif %}
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ sim.get("note") }}</div>
+            {% else %}
+                <div class="api-error-note">⚠ {{ sim.get("error","Similarity search unavailable.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+</div>
+{% endif %}
+
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+    const metadataJSON = {{ metadata | tojson }};
+
+    function copyMetadataJSON() {
+        const text = JSON.stringify(metadataJSON, null, 2);
+        navigator.clipboard.writeText(text).then(function() {
+            const confirm = document.getElementById('copyConfirm');
+            confirm.style.display = 'inline';
+            setTimeout(function() { confirm.style.display = 'none'; }, 2000);
+        }).catch(function(err) {
+            alert('Copy failed: ' + err);
+        });
+    }
+
+    function downloadMetadataJSON() {
+        const text = JSON.stringify(metadataJSON, null, 2);
+        const blob = new Blob([text], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "{{ filename }}_metadata.json";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    }
+
+    {% set gps = image_intel.get("gps") if image_intel else None %}
+    {% if gps and gps.get("has_gps") %}
+    (function() {
+        var map = L.map('gps-map').setView([{{ gps.get("latitude") }}, {{ gps.get("longitude") }}], 14);
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; OpenStreetMap contributors'
+        }).addTo(map);
+        L.marker([{{ gps.get("latitude") }}, {{ gps.get("longitude") }}]).addTo(map)
+            .bindPopup("{{ filename }}").openPopup();
+    })();
+    {% endif %}
+</script>
+
+</body>
+</html>

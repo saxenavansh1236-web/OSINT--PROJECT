@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OSINT — Cases</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f0e;
+      --surface:   #141714;
+      --card:      #181c18;
+      --border:    #1f2820;
+      --green:     #00ff6a;
+      --green-dim: #00c94f;
+      --green-glow:rgba(0,255,106,.12);
+      --text:      #c8d8c8;
+      --muted:     #5a6b5a;
+      --danger:    #ff4444;
+      --warn:      #ffaa00;
+      --info:      #44aaff;
+      --mono:      'Share Tech Mono', monospace;
+      --sans:      'Inter', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+    /* ── NAV ── */
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-family: var(--mono);
+      color: var(--green);
+      font-size: .95rem;
+      letter-spacing: .12em;
+      text-decoration: none;
+    }
+    .nav-brand svg { width: 20px; height: 20px; }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .14em;
+      color: var(--muted);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: color .2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--green); }
+    .nav-user { font-family: var(--mono); font-size: .72rem; color: var(--muted); letter-spacing: .1em; }
+
+    /* ── LAYOUT ── */
+    main { max-width: 1300px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    .page-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .page-title { font-family: var(--mono); font-size: 1.4rem; color: var(--green); letter-spacing: .08em; }
+    .page-title small {
+      display: block;
+      font-family: var(--sans);
+      font-size: .75rem;
+      color: var(--muted);
+      letter-spacing: normal;
+      margin-top: .25rem;
+    }
+
+    /* ── FILTER BAR ── */
+    .filter-bar {
+      display: flex;
+      gap: .75rem;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .filter-bar form { display: flex; gap: .5rem; align-items: center; flex-wrap: wrap; }
+    .filter-input, .filter-select {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: .75rem;
+      padding: .45rem .85rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .filter-input:focus, .filter-select:focus { border-color: var(--green); }
+    .filter-input::placeholder { color: var(--muted); }
+    .filter-select option { background: var(--surface); }
+
+    /* ── BUTTONS ── */
+    .btn {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .1em;
+      padding: .5rem 1.1rem;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid;
+      transition: all .2s;
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+    }
+    .btn-green {
+      background: var(--green);
+      border-color: var(--green);
+      color: #050e05;
+      font-weight: 700;
+    }
+    .btn-green:hover { background: var(--green-dim); border-color: var(--green-dim); }
+    .btn-outline {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--muted);
+    }
+    .btn-outline:hover { border-color: var(--green); color: var(--green); }
+    .btn-sm { padding: .3rem .65rem; font-size: .65rem; }
+
+    /* ── CASE GRID ── */
+    .cases-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 1rem;
+    }
+
+    .case-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.25rem;
+      transition: border-color .2s, box-shadow .2s;
+      display: flex;
+      flex-direction: column;
+      gap: .85rem;
+      position: relative;
+      overflow: hidden;
+    }
+    .case-card::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px;
+      height: 100%;
+    }
+    .case-card.priority-critical::before { background: var(--danger); }
+    .case-card.priority-high::before     { background: #ff7700; }
+    .case-card.priority-medium::before   { background: var(--warn); }
+    .case-card.priority-low::before      { background: var(--green); }
+
+    .case-card:hover {
+      border-color: rgba(0,255,106,.3);
+      box-shadow: 0 0 20px rgba(0,255,106,.05);
+    }
+
+    .case-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: .75rem;
+    }
+    .case-id {
+      font-family: var(--mono);
+      font-size: .65rem;
+      color: var(--muted);
+      letter-spacing: .1em;
+    }
+    .case-title {
+      font-size: .92rem;
+      font-weight: 500;
+      color: var(--text);
+      margin-top: .2rem;
+      line-height: 1.4;
+    }
+    .case-target {
+      font-family: var(--mono);
+      font-size: .75rem;
+      color: var(--green);
+      margin-top: .3rem;
+    }
+
+    .case-meta {
+      display: flex;
+      gap: .5rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      font-family: var(--mono);
+      font-size: .63rem;
+      letter-spacing: .08em;
+      padding: .2rem .55rem;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+    .badge-green    { color: var(--green);  border-color: var(--green);  background: rgba(0,255,106,.07); }
+    .badge-red      { color: var(--danger); border-color: var(--danger); background: rgba(255,68,68,.07); }
+    .badge-yellow   { color: var(--warn);   border-color: var(--warn);   background: rgba(255,170,0,.07); }
+    .badge-orange   { color: #ff7700;       border-color: #ff7700;       background: rgba(255,119,0,.07); }
+    .badge-blue     { color: var(--info);   border-color: var(--info);   background: rgba(68,170,255,.07); }
+    .badge-gray     { color: var(--muted);  border-color: var(--border); background: transparent; }
+
+    .case-footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: .5rem;
+      border-top: 1px solid var(--border);
+      padding-top: .85rem;
+    }
+    .case-date { font-family: var(--mono); font-size: .65rem; color: var(--muted); }
+    .case-actions { display: flex; gap: .4rem; }
+
+    /* ── TAGS ── */
+    .tag {
+      font-family: var(--mono);
+      font-size: .6rem;
+      padding: .15rem .4rem;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      color: var(--muted);
+      letter-spacing: .06em;
+    }
+
+    /* ── EMPTY ── */
+    .empty {
+      grid-column: 1 / -1;
+      text-align: center;
+      padding: 5rem 2rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .empty-icon  { font-size: 3rem; margin-bottom: 1rem; opacity: .2; }
+    .empty-title { font-size: .9rem; letter-spacing: .14em; margin-bottom: .5rem; text-transform: uppercase; }
+    .empty-sub   { font-size: .72rem; }
+
+    /* ── FLASH ── */
+    .flash {
+      padding: .75rem 1.25rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      font-size: .82rem;
+      font-family: var(--mono);
+      letter-spacing: .06em;
+    }
+    .flash-success { background: rgba(0,255,106,.1); border: 1px solid var(--green); color: var(--green); }
+    .flash-error   { background: rgba(255,68,68,.1);  border: 1px solid var(--danger); color: var(--danger); }
+
+    /* ── STATS ROW ── */
+    .stat-row {
+      display: flex;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+    .stat-pill {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: .6rem 1rem;
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+    }
+    .stat-pill-num { font-family: var(--mono); font-size: 1.3rem; color: var(--green); }
+    .stat-pill-label { font-family: var(--mono); font-size: .63rem; color: var(--muted); letter-spacing: .1em; text-transform: uppercase; }
+    .stat-pill.danger .stat-pill-num { color: var(--danger); }
+    .stat-pill.warn   .stat-pill-num { color: var(--warn); }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+    OSINT
+  </a>
+  <ul class="nav-links">
+    <li><a href="/">Scanner</a></li>
+    <li><a href="/history">History</a></li>
+    <li><a href="/cases" class="active">Cases</a></li>
+    <li><a href="/admin/reports">Reports</a></li>
+    <li><a href="/admin/scheduled">Monitor</a></li>
+    <li><a href="/dashboard">Admin</a></li>
+  </ul>
+  <span class="nav-user">{{ admin_user }} · {{ admin_role }}</span>
+</nav>
+
+<main>
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="page-title">
+      Cases
+      <small>Investigation management — track, annotate, and export</small>
+    </div>
+  </div>
+
+  <!-- FLASH -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <!-- STAT ROW -->
+  {% set open_cases     = cases | selectattr('status', 'eq', 'open')     | list %}
+  {% set active_cases   = cases | selectattr('status', 'eq', 'active')   | list %}
+  {% set closed_cases   = cases | selectattr('status', 'eq', 'closed')   | list %}
+  {% set critical_cases = cases | selectattr('priority', 'eq', 'critical')| list %}
+  <div class="stat-row">
+    <div class="stat-pill">
+      <div class="stat-pill-num">{{ cases | length }}</div>
+      <div class="stat-pill-label">Total</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-pill-num">{{ open_cases | length }}</div>
+      <div class="stat-pill-label">Open</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-pill-num">{{ active_cases | length }}</div>
+      <div class="stat-pill-label">Active</div>
+    </div>
+    <div class="stat-pill warn">
+      <div class="stat-pill-num">{{ critical_cases | length }}</div>
+      <div class="stat-pill-label">Critical</div>
+    </div>
+    <div class="stat-pill">
+      <div class="stat-pill-num">{{ closed_cases | length }}</div>
+      <div class="stat-pill-label">Closed</div>
+    </div>
+  </div>
+
+  <!-- FILTERS -->
+  <div class="filter-bar">
+    <form method="GET" action="/cases">
+      <input class="filter-input" name="q" placeholder="Search cases…"
+             value="{{ request.args.get('q', '') }}" />
+      <select class="filter-select" name="status">
+        <option value="">All Status</option>
+        <option value="open"     {% if filter_status=='open'     %}selected{% endif %}>Open</option>
+        <option value="active"   {% if filter_status=='active'   %}selected{% endif %}>Active</option>
+        <option value="closed"   {% if filter_status=='closed'   %}selected{% endif %}>Closed</option>
+        <option value="archived" {% if filter_status=='archived' %}selected{% endif %}>Archived</option>
+      </select>
+      <select class="filter-select" name="priority">
+        <option value="">All Priority</option>
+        <option value="critical" {% if filter_priority=='critical' %}selected{% endif %}>Critical</option>
+        <option value="high"     {% if filter_priority=='high'     %}selected{% endif %}>High</option>
+        <option value="medium"   {% if filter_priority=='medium'   %}selected{% endif %}>Medium</option>
+        <option value="low"      {% if filter_priority=='low'      %}selected{% endif %}>Low</option>
+      </select>
+      <button type="submit" class="btn btn-outline">Filter</button>
+      {% if filter_status or filter_priority or request.args.get('q') %}
+        <a href="/cases" class="btn btn-outline">Clear</a>
+      {% endif %}
+    </form>
+  </div>
+
+  <!-- CASES GRID -->
+  <div class="cases-grid">
+    {% if cases %}
+      {% for c in cases %}
+      <div class="case-card priority-{{ c.priority or 'medium' }}">
+        <div class="case-head">
+          <div>
+            <div class="case-id">#{{ c.id }} · {{ c.created_by or 'unknown' }}</div>
+            <div class="case-title">{{ c.title }}</div>
+            <div class="case-target">◎ {{ c.target }}</div>
+          </div>
+        </div>
+
+        <div class="case-meta">
+          <!-- Status badge -->
+          {% if c.status == 'open' %}
+            <span class="badge badge-green">OPEN</span>
+          {% elif c.status == 'active' %}
+            <span class="badge badge-blue">ACTIVE</span>
+          {% elif c.status == 'closed' %}
+            <span class="badge badge-gray">CLOSED</span>
+          {% elif c.status == 'archived' %}
+            <span class="badge badge-gray">ARCHIVED</span>
+          {% else %}
+            <span class="badge badge-gray">{{ c.status | upper }}</span>
+          {% endif %}
+
+          <!-- Priority badge -->
+          {% if c.priority == 'critical' %}
+            <span class="badge badge-red">CRITICAL</span>
+          {% elif c.priority == 'high' %}
+            <span class="badge badge-orange">HIGH</span>
+          {% elif c.priority == 'medium' %}
+            <span class="badge badge-yellow">MEDIUM</span>
+          {% else %}
+            <span class="badge badge-green">LOW</span>
+          {% endif %}
+
+          <!-- Tags -->
+          {% for tag in (c.tags or [])[:3] %}
+            <span class="tag">{{ tag }}</span>
+          {% endfor %}
+        </div>
+
+        {% if c.description %}
+          <div style="font-size:.78rem;color:var(--muted);line-height:1.5;
+                      display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">
+            {{ c.description }}
+          </div>
+        {% endif %}
+
+        <div class="case-footer">
+          <div class="case-date">
+            {{ c.created_at if c.created_at else '—' }}
+          </div>
+          <div class="case-actions">
+            <a href="/cases/{{ c.id }}" class="btn btn-outline btn-sm">View →</a>
+            <a href="/cases/{{ c.id }}/export?format=json" class="btn btn-outline btn-sm" title="Export JSON">⬇</a>
+            {% if admin_role == 'admin' %}
+            <form method="POST" action="/cases/{{ c.id }}/delete" style="display:inline;"
+                  onsubmit="return confirm('Delete case #{{ c.id }}?')">
+              <button type="submit" class="btn btn-sm"
+                      style="background:transparent;border:1px solid rgba(255,68,68,.3);
+                             color:var(--danger);cursor:pointer;font-family:var(--mono);
+                             font-size:.65rem;padding:.3rem .65rem;border-radius:4px;">✕</button>
+            </form>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    {% else %}
+      <div class="empty">
+        <div class="empty-icon">◻</div>
+        <div class="empty-title">No cases found</div>
+        <div class="empty-sub">
+          {% if filter_status or filter_priority or request.args.get('q') %}
+            No cases match your filters — <a href="/cases" style="color:var(--green);">clear filters</a>
+          {% else %}
+            Run a scan and use "Create Case" to start an investigation
+          {% endif %}
+        </div>
+      </div>
+    {% endif %}
+  </div>
+</main>
+
+</body>
+</html>

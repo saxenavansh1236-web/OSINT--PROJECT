@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OSINT — Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:        #0d0f0e;
+      --surface:   #141714;
+      --card:      #181c18;
+      --border:    #1f2820;
+      --green:     #00ff6a;
+      --green-dim: #00c94f;
+      --green-glow:rgba(0,255,106,.12);
+      --text:      #c8d8c8;
+      --muted:     #5a6b5a;
+      --danger:    #ff4444;
+      --warn:      #ffaa00;
+      --mono:      'Share Tech Mono', monospace;
+      --sans:      'Inter', sans-serif;
+    }
+
+    body { background: var(--bg); color: var(--text); font-family: var(--sans); min-height: 100vh; }
+
+    /* ── NAV ── */
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 2rem;
+      height: 52px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .nav-brand {
+      display: flex;
+      align-items: center;
+      gap: .6rem;
+      font-family: var(--mono);
+      color: var(--green);
+      font-size: .95rem;
+      letter-spacing: .12em;
+      text-decoration: none;
+    }
+    .nav-brand svg { width: 20px; height: 20px; }
+    .nav-links { display: flex; gap: 2rem; list-style: none; }
+    .nav-links a {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .14em;
+      color: var(--muted);
+      text-decoration: none;
+      text-transform: uppercase;
+      transition: color .2s;
+    }
+    .nav-links a:hover, .nav-links a.active { color: var(--green); }
+    .nav-user { font-family: var(--mono); font-size: .72rem; color: var(--muted); letter-spacing: .1em; }
+
+    /* ── LAYOUT ── */
+    main { max-width: 1200px; margin: 0 auto; padding: 2rem 1.5rem 4rem; }
+
+    .page-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      margin-bottom: 2rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+    .page-title { font-family: var(--mono); font-size: 1.4rem; color: var(--green); letter-spacing: .08em; }
+    .page-title small {
+      display: block;
+      font-family: var(--sans);
+      font-size: .75rem;
+      color: var(--muted);
+      letter-spacing: normal;
+      margin-top: .25rem;
+    }
+
+    /* ── ADD FORM ── */
+    .add-form {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 1.5rem;
+      margin-bottom: 2rem;
+    }
+    .form-title {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .14em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 1.25rem;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 2fr 1fr 1fr 1fr auto;
+      gap: .75rem;
+      align-items: end;
+    }
+    @media (max-width: 900px) { .form-row { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 600px) { .form-row { grid-template-columns: 1fr; } }
+
+    .form-group { display: flex; flex-direction: column; gap: .4rem; }
+    .form-label {
+      font-family: var(--mono);
+      font-size: .63rem;
+      letter-spacing: .12em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    .form-input, .form-select {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--mono);
+      font-size: .82rem;
+      padding: .6rem .9rem;
+      outline: none;
+      transition: border-color .2s;
+    }
+    .form-input:focus, .form-select:focus { border-color: var(--green); }
+    .form-input::placeholder { color: var(--muted); }
+    .form-select option { background: var(--surface); }
+
+    /* ── BUTTONS ── */
+    .btn {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .1em;
+      padding: .6rem 1.2rem;
+      border-radius: 4px;
+      cursor: pointer;
+      text-decoration: none;
+      border: 1px solid;
+      transition: all .2s;
+      display: inline-flex;
+      align-items: center;
+      gap: .4rem;
+      white-space: nowrap;
+    }
+    .btn-green {
+      background: var(--green);
+      border-color: var(--green);
+      color: #050e05;
+      font-weight: 700;
+    }
+    .btn-green:hover { background: var(--green-dim); border-color: var(--green-dim); }
+    .btn-outline {
+      background: transparent;
+      border-color: var(--border);
+      color: var(--muted);
+    }
+    .btn-outline:hover { border-color: var(--green); color: var(--green); }
+    .btn-danger {
+      background: transparent;
+      border-color: rgba(255,68,68,.3);
+      color: var(--danger);
+    }
+    .btn-danger:hover { background: rgba(255,68,68,.1); }
+    .btn-sm { padding: .35rem .75rem; font-size: .65rem; }
+
+    /* ── TARGETS TABLE ── */
+    .section-title {
+      font-family: var(--mono);
+      font-size: .72rem;
+      letter-spacing: .14em;
+      color: var(--muted);
+      text-transform: uppercase;
+      margin-bottom: 1rem;
+    }
+    .table-card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow: hidden;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    thead tr { border-bottom: 1px solid var(--border); }
+    th {
+      font-family: var(--mono);
+      font-size: .65rem;
+      letter-spacing: .12em;
+      color: var(--muted);
+      text-transform: uppercase;
+      padding: .85rem 1.25rem;
+      text-align: left;
+    }
+    td {
+      padding: .85rem 1.25rem;
+      font-size: .82rem;
+      border-bottom: 1px solid var(--border);
+      color: var(--text);
+      vertical-align: middle;
+    }
+    tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: rgba(0,255,106,.03); }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: .3rem;
+      font-family: var(--mono);
+      font-size: .63rem;
+      letter-spacing: .08em;
+      padding: .2rem .55rem;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+    .badge-green  { color: var(--green);  border-color: var(--green);  background: rgba(0,255,106,.07); }
+    .badge-red    { color: var(--danger); border-color: var(--danger); background: rgba(255,68,68,.07); }
+    .badge-yellow { color: var(--warn);   border-color: var(--warn);   background: rgba(255,170,0,.07); }
+    .badge-gray   { color: var(--muted);  border-color: var(--border); background: transparent; }
+
+    /* ── TOGGLE SWITCH ── */
+    .toggle-wrap { display: flex; align-items: center; gap: .5rem; }
+    .toggle-label { font-family: var(--mono); font-size: .65rem; color: var(--muted); }
+
+    /* ── ROW ACTIONS ── */
+    .row-actions { display: flex; gap: .5rem; align-items: center; }
+
+    /* ── EMPTY ── */
+    .empty {
+      text-align: center;
+      padding: 4rem 2rem;
+      color: var(--muted);
+      font-family: var(--mono);
+    }
+    .empty-icon { font-size: 2.5rem; margin-bottom: 1rem; opacity: .3; }
+    .empty-title { font-size: .9rem; letter-spacing: .12em; margin-bottom: .5rem; }
+    .empty-sub   { font-size: .72rem; }
+
+    .mono { font-family: var(--mono); font-size: .82rem; }
+    .text-green  { color: var(--green); }
+    .text-red    { color: var(--danger); }
+    .text-yellow { color: var(--warn); }
+    .text-muted  { color: var(--muted); }
+
+    /* ── FLASH ── */
+    .flash {
+      padding: .75rem 1.25rem;
+      border-radius: 6px;
+      margin-bottom: 1.5rem;
+      font-size: .82rem;
+      font-family: var(--mono);
+      letter-spacing: .06em;
+    }
+    .flash-success { background: rgba(0,255,106,.1); border: 1px solid var(--green); color: var(--green); }
+    .flash-error   { background: rgba(255,68,68,.1);  border: 1px solid var(--danger); color: var(--danger); }
+
+    /* ── PULSE DOT ── */
+    .pulse {
+      display: inline-block;
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--green);
+      box-shadow: 0 0 0 0 rgba(0,255,106,.5);
+      animation: pulse 1.8s infinite;
+      margin-right: .4rem;
+    }
+    .pulse.off { background: var(--muted); box-shadow: none; animation: none; }
+    @keyframes pulse {
+      0%   { box-shadow: 0 0 0 0 rgba(0,255,106,.5); }
+      70%  { box-shadow: 0 0 0 6px rgba(0,255,106,0); }
+      100% { box-shadow: 0 0 0 0 rgba(0,255,106,0); }
+    }
+  </style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <a href="/" class="nav-brand">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <polygon points="12,2 22,8.5 22,15.5 12,22 2,15.5 2,8.5"/>
+      <circle cx="12" cy="12" r="3"/>
+    </svg>
+    OSINT
+  </a>
+  <ul class="nav-links">
+    <li><a href="/">Scanner</a></li>
+    <li><a href="/history">History</a></li>
+    <li><a href="/cases">Cases</a></li>
+    <li><a href="/admin/reports">Reports</a></li>
+    <li><a href="/admin/scheduled" class="active">Monitor</a></li>
+    <li><a href="/admin/alerts">Notifications</a></li>
+    <li><a href="/dashboard">Admin</a></li>
+  </ul>
+  <span class="nav-user">{{ admin_user }} · {{ admin_role }}</span>
+</nav>
+
+<main>
+  <!-- HEADER -->
+  <div class="page-header">
+    <div class="page-title">
+      Monitor
+      <small>Automated recurring scans — set targets and walk away</small>
+    </div>
+  </div>
+
+  <!-- FLASH MESSAGES -->
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for cat, msg in messages %}
+      <div class="flash flash-{{ cat }}">{{ msg }}</div>
+    {% endfor %}
+  {% endwith %}
+
+  <!-- ADD FORM -->
+  <div class="add-form">
+    <div class="form-title">// add target</div>
+    <form method="POST" action="/admin/scheduled/add">
+      <div class="form-row">
+        <div class="form-group">
+          <label class="form-label">Target</label>
+          <input class="form-input" name="target" placeholder="domain.com / IP / email / username" required />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Label</label>
+          <input class="form-input" name="label" placeholder="optional label" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Frequency</label>
+          <select class="form-select" name="frequency">
+            <option value="hourly">Hourly</option>
+            <option value="daily" selected>Daily</option>
+            <option value="weekly">Weekly</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Notify Email</label>
+          <input class="form-input" name="notify_email" type="email" placeholder="alerts@example.com" />
+        </div>
+        <button type="submit" class="btn btn-green">+ Add</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- TARGETS TABLE -->
+  <div class="section-title">// monitored targets ({{ targets|length }})</div>
+  <div class="table-card">
+    {% if targets %}
+    <table>
+      <thead>
+        <tr>
+          <th>Status</th>
+          <th>Target</th>
+          <th>Label</th>
+          <th>Frequency</th>
+          <th>Last Scan</th>
+          <th>Next Scan</th>
+          <th>Notify</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for t in targets %}
+        <tr>
+          <td>
+            <span class="pulse {% if not t.enabled %}off{% endif %}"></span>
+            {% if t.enabled %}
+              <span class="text-green" style="font-family:var(--mono);font-size:.7rem;">ACTIVE</span>
+            {% else %}
+              <span class="text-muted" style="font-family:var(--mono);font-size:.7rem;">PAUSED</span>
+            {% endif %}
+          </td>
+          <td class="mono text-green">{{ t.target }}</td>
+          <td class="text-muted">{{ t.label or '—' }}</td>
+          <td>
+            <span class="badge {% if t.frequency == 'hourly' %}badge-yellow{% elif t.frequency == 'daily' %}badge-green{% else %}badge-gray{% endif %}">
+              {{ t.frequency | upper }}
+            </span>
+          </td>
+          <!--
+            NOTE: list_targets() in modules/scheduled_scan.py already returns
+            last_run / next_run as pre-formatted strings (e.g. "2026-07-02 16:45:00",
+            "Never", "Pending", "Disabled"). Do NOT call .strftime() on them here —
+            that was the cause of: jinja2.exceptions.UndefinedError:
+            'str object' has no attribute 'strftime'
+          -->
+          <td class="text-muted mono" style="font-size:.75rem;">
+            {{ t.last_run if t.last_run else '—' }}
+          </td>
+          <td class="text-muted mono" style="font-size:.75rem;">
+            {{ t.next_run if t.next_run else '—' }}
+          </td>
+          <td class="text-muted" style="font-size:.75rem;">{{ t.notify_email or '—' }}</td>
+          <td>
+            <div class="row-actions">
+              <!-- Run now -->
+              <form method="POST" action="/admin/scheduled/run/{{ t.id }}" style="display:inline;">
+                <button type="submit" class="btn btn-outline btn-sm" title="Run now">▶ Run</button>
+              </form>
+              <!-- Toggle -->
+              <form method="POST" action="/admin/scheduled/toggle/{{ t.id }}" style="display:inline;">
+                <input type="hidden" name="enabled" value="{{ 'false' if t.enabled else 'true' }}" />
+                <button type="submit" class="btn btn-outline btn-sm">
+                  {% if t.enabled %}⏸ Pause{% else %}▶ Resume{% endif %}
+                </button>
+              </form>
+              <!-- Delete -->
+              <form method="POST" action="/admin/scheduled/delete/{{ t.id }}" style="display:inline;"
+                    onsubmit="return confirm('Remove {{ t.target }} from monitoring?')">
+                <button type="submit" class="btn btn-danger btn-sm">✕</button>
+              </form>
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <div class="empty">
+      <div class="empty-icon">◎</div>
+      <div class="empty-title">NO TARGETS MONITORED</div>
+      <div class="empty-sub">Add a target above to start automated scanning</div>
+    </div>
+    {% endif %}
+  </div>
+</main>
+
+</body>
+</html>

@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Audit Logs — OSINT</title>
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        :root { --bg:#0a0a0f; --surface:#0f0f1a; --border:#1a2a1a; --green:#00ff88; --red:#ff3c3c; --yellow:#ffaa00; --blue:#4488ff; --muted:#555; --text:#ccc; }
+        body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; min-height:100vh; }
+        nav { background:var(--surface); border-bottom:1px solid var(--border); padding:0 32px; display:flex; align-items:center; justify-content:space-between; height:56px; position:sticky; top:0; z-index:100; }
+        .brand { color:var(--green); font-size:15px; letter-spacing:3px; font-weight:bold; }
+        .nav-links { display:flex; gap:4px; }
+        .nav-links a { color:var(--muted); text-decoration:none; font-size:11px; letter-spacing:1px; padding:6px 14px; border-radius:4px; transition:all 0.2s; text-transform:uppercase; }
+        .nav-links a:hover, .nav-links a.active { color:var(--green); background:rgba(0,255,136,0.07); }
+        .nav-right { display:flex; align-items:center; gap:16px; font-size:11px; }
+        .role-badge { padding:3px 10px; border-radius:20px; font-size:10px; letter-spacing:1px; text-transform:uppercase; background:rgba(0,255,136,0.1); color:var(--green); border:1px solid var(--border); }
+        .logout { color:var(--red); text-decoration:none; font-size:11px; }
+        .container { max-width:1100px; margin:0 auto; padding:32px 24px; }
+        .section-title { color:var(--green); font-size:11px; letter-spacing:3px; text-transform:uppercase; margin-bottom:16px; }
+        .table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+        table { width:100%; border-collapse:collapse; font-size:12px; }
+        th { text-align:left; padding:12px 20px; color:var(--muted); font-size:10px; letter-spacing:2px; text-transform:uppercase; border-bottom:1px solid var(--border); background:var(--bg); }
+        td { padding:11px 20px; border-bottom:1px solid #0d0d18; color:var(--text); }
+        tr:last-child td { border-bottom:none; }
+        tr:hover td { background:#111122; }
+        .empty { text-align:center; padding:40px; color:#333; }
+
+        /* Action color coding */
+        .action-login         { color:var(--green); }
+        .action-logout        { color:var(--muted); }
+        .action-failed_login  { color:var(--red); }
+        .action-deleted       { color:var(--red); }
+        .action-created       { color:var(--blue); }
+        .action-exported      { color:var(--yellow); }
+        .action-changed       { color:var(--yellow); }
+        .action-default       { color:var(--text); }
+    </style>
+</head>
+<body>
+
+<nav>
+    <span class="brand">⬡ OSINT</span>
+    <div class="nav-links">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/admin/users">Users</a>
+        <a href="/admin/audit" class="active">Audit Logs</a>
+        <a href="/">Scanner</a>
+    </div>
+    <div class="nav-right">
+        <span>{{ admin_user }}</span>
+        <span class="role-badge">{{ admin_role }}</span>
+        <a href="/logout" class="logout">Logout</a>
+    </div>
+</nav>
+
+<div class="container">
+
+    <p class="section-title">Admin Audit Logs — last 200 entries</p>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Timestamp</th>
+                    <th>Admin</th>
+                    <th>Action</th>
+                    <th>Detail</th>
+                    <th>IP</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if logs %}
+                    {% for log in logs %}
+                    <tr>
+                        <td style="color:var(--muted)">{{ log.id }}</td>
+                        <td style="color:var(--muted)">{{ log.timestamp.strftime('%Y-%m-%d %H:%M:%S') if log.timestamp else '—' }}</td>
+                        <td style="color:var(--green)">{{ log.admin_user }}</td>
+                        <td>
+                            {% if 'login' in log.action and 'failed' not in log.action %}
+                                <span class="action-login">{{ log.action }}</span>
+                            {% elif 'failed' in log.action %}
+                                <span class="action-failed_login">{{ log.action }}</span>
+                            {% elif 'logout' in log.action %}
+                                <span class="action-logout">{{ log.action }}</span>
+                            {% elif 'deleted' in log.action %}
+                                <span class="action-deleted">{{ log.action }}</span>
+                            {% elif 'created' in log.action %}
+                                <span class="action-created">{{ log.action }}</span>
+                            {% elif 'exported' in log.action %}
+                                <span class="action-exported">{{ log.action }}</span>
+                            {% elif 'changed' in log.action %}
+                                <span class="action-changed">{{ log.action }}</span>
+                            {% else %}
+                                <span class="action-default">{{ log.action }}</span>
+                            {% endif %}
+                        </td>
+                        <td style="color:var(--muted);font-size:11px">{{ log.detail or '—' }}</td>
+                        <td style="color:var(--muted);font-size:11px">{{ log.ip_address or '—' }}</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr><td colspan="6" class="empty">No audit logs yet.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+</body>
+</html>

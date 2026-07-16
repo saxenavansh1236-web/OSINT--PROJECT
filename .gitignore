@@ -1,0 +1,6 @@
+.env
+__pycache__/
+instance/
+*.pyc
+monitor_snapshots/
+uploads/

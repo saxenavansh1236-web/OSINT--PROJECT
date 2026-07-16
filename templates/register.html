@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register — OSINT</title>
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        :root {
+            --bg:      #0a0a0f;
+            --surface: #0f0f1a;
+            --border:  #1a2a1a;
+            --green:   #00ff88;
+            --red:     #ff3c3c;
+            --muted:   #555;
+            --text:    #ccc;
+        }
+        body {
+            background:var(--bg); color:var(--text); font-family:'Courier New',monospace;
+            min-height:100vh; display:flex; align-items:center; justify-content:center;
+            padding:24px;
+        }
+        .card {
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:10px; padding:40px; width:100%; max-width:440px;
+        }
+        .brand {
+            display:flex; align-items:center; justify-content:center; gap:10px;
+            margin-bottom:6px;
+        }
+        .brand-icon { color:var(--green); font-size:22px; }
+        .brand-text { color:var(--green); font-size:20px; letter-spacing:6px; font-weight:bold; }
+        .sub {
+            text-align:center; font-size:11px; color:var(--muted);
+            letter-spacing:2px; margin-bottom:32px; text-transform:uppercase;
+        }
+        .flash {
+            padding:10px 14px; border-radius:4px; font-size:12px;
+            margin-bottom:20px; letter-spacing:0.5px;
+            background:rgba(255,60,60,0.08); border:1px solid var(--red); color:var(--red);
+        }
+        .flash.success {
+            background:rgba(0,255,136,0.08); border-color:var(--green); color:var(--green);
+        }
+        .field { margin-bottom:16px; }
+        .label {
+            display:block; font-size:10px; color:var(--muted); letter-spacing:1px;
+            text-transform:uppercase; margin-bottom:6px;
+        }
+        .input {
+            width:100%; background:var(--bg); border:1px solid var(--border);
+            border-radius:6px; color:var(--green); font-family:'Courier New',monospace;
+            font-size:14px; padding:12px 14px; outline:none; transition:border-color 0.2s;
+        }
+        .input:focus { border-color:var(--green); }
+        .input::placeholder { color:var(--muted); }
+        .hint { font-size:10px; color:var(--muted); margin-top:5px; letter-spacing:0.5px; }
+        .captcha-row { margin:20px 0; }
+        .captcha-box {
+            display:flex; align-items:center; gap:12px; flex-wrap:wrap;
+            background:var(--bg); border:1px solid var(--border);
+            border-radius:8px; padding:12px 16px;
+        }
+        .captcha-box label {
+            font-size:11px; color:var(--text); letter-spacing:1px;
+            text-transform:uppercase; white-space:nowrap;
+        }
+        .captcha-box input[type="number"] {
+            width:90px; background:var(--surface); border:1px solid var(--border);
+            border-radius:6px; color:var(--green); font-family:'Courier New',monospace;
+            font-size:14px; font-weight:bold; text-align:center; padding:9px 10px; outline:none;
+        }
+        .captcha-box input[type="number"]:focus { border-color:var(--green); }
+        .btn-submit {
+            width:100%; background:var(--green); color:var(--bg); border:none;
+            border-radius:6px; font-family:'Courier New',monospace; font-size:13px;
+            font-weight:bold; letter-spacing:2px; padding:14px; cursor:pointer;
+            text-transform:uppercase; transition:opacity 0.2s;
+        }
+        .btn-submit:hover { opacity:0.85; }
+        .foot {
+            text-align:center; margin-top:22px; font-size:12px; color:var(--muted);
+        }
+        .foot a { color:var(--green); text-decoration:none; }
+        .foot a:hover { text-decoration:underline; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <div class="brand"><span class="brand-icon">⬡</span><span class="brand-text">OSINT</span></div>
+        <div class="sub">Create an account to access the scanner</div>
+
+        {% with messages = get_flashed_messages(with_categories=true) %}
+            {% for cat, msg in messages %}
+                <div class="flash {{ 'success' if cat == 'success' else '' }}">{{ msg }}</div>
+            {% endfor %}
+        {% endwith %}
+
+        <form method="POST">
+            <div class="field">
+                <label class="label">Username</label>
+                <input class="input" type="text" name="username" placeholder="your_username" required autocomplete="username" autofocus>
+            </div>
+
+            <div class="field">
+                <label class="label">Email (optional)</label>
+                <input class="input" type="email" name="email" placeholder="you@example.com" autocomplete="email">
+            </div>
+
+            <div class="field">
+                <label class="label">Password</label>
+                <input class="input" type="password" name="password" placeholder="••••••••" required autocomplete="new-password" minlength="8">
+                <div class="hint">Minimum 8 characters.</div>
+            </div>
+
+            <div class="field">
+                <label class="label">Confirm Password</label>
+                <input class="input" type="password" name="confirm_password" placeholder="••••••••" required autocomplete="new-password" minlength="8">
+            </div>
+
+            <div class="captcha-row">
+                {{ captcha|safe }}
+            </div>
+
+            <button type="submit" class="btn-submit">Create Account</button>
+        </form>
+
+        <div class="foot">Already have an account? <a href="{{ url_for('user_login') }}">Log In</a></div>
+    </div>
+
+</body>
+</html>

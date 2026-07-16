@@ -1,0 +1,2073 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OSINT Platform</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        :root {
+            --bg:      #0a0a0f;
+            --surface: #0f0f1a;
+            --surface2:#12121f;
+            --border:  #1a2a1a;
+            --green:   #00ff88;
+            --red:     #ff3c3c;
+            --yellow:  #ffaa00;
+            --blue:    #4488ff;
+            --purple:  #aa44ff;
+            --cyan:    #00ccff;
+            --orange:  #ff6b35;
+            --muted:   #555;
+            --text:    #ccc;
+        }
+        body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; min-height:100vh; }
+        nav {
+            background:var(--surface); border-bottom:1px solid var(--border);
+            padding:0 32px; display:flex; align-items:center; justify-content:space-between;
+            height:56px; position:sticky; top:0; z-index:100;
+        }
+        .brand { color:var(--green); font-size:16px; letter-spacing:4px; font-weight:bold; }
+        .nav-links { display:flex; gap:4px; }
+        .nav-links a {
+            color:var(--muted); text-decoration:none; font-size:11px;
+            letter-spacing:1px; padding:6px 14px; border-radius:4px;
+            text-transform:uppercase; transition:all 0.2s;
+        }
+        .nav-links a:hover { color:var(--green); background:rgba(0,255,136,0.07); }
+        .page { max-width:1200px; margin:0 auto; padding:40px 24px; }
+        .flash {
+            padding:12px 16px; border-radius:4px; font-size:12px;
+            margin-bottom:24px; letter-spacing:1px;
+            background:rgba(255,60,60,0.08); border:1px solid var(--red); color:var(--red);
+        }
+        /* ── SEARCH ── */
+        .search-wrap {
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:10px; padding:32px; margin-bottom:40px; text-align:center;
+        }
+        .search-title { font-size:28px; color:var(--green); letter-spacing:6px; margin-bottom:8px; }
+        .search-sub { font-size:11px; color:var(--muted); letter-spacing:2px; margin-bottom:28px; }
+        .search-row { display:flex; gap:12px; max-width:600px; margin:0 auto; }
+        .search-row input {
+            flex:1; background:var(--bg); border:1px solid var(--border);
+            border-radius:6px; color:var(--green);
+            font-family:'Courier New',monospace; font-size:14px;
+            padding:14px 18px; outline:none; transition:border-color 0.2s;
+        }
+        .search-row input:focus { border-color:var(--green); }
+        .search-row input::placeholder { color:var(--muted); }
+        .btn-scan {
+            background:var(--green); color:var(--bg); border:none; border-radius:6px;
+            font-family:'Courier New',monospace; font-size:13px; font-weight:bold;
+            letter-spacing:2px; padding:14px 28px; cursor:pointer;
+            text-transform:uppercase; white-space:nowrap; transition:opacity 0.2s;
+        }
+        .btn-scan:hover { opacity:0.85; }
+        /* ── LOADER ── */
+        #loader { display:none; text-align:center; padding:40px; color:var(--green); font-size:13px; letter-spacing:3px; }
+        .spinner {
+            width:32px; height:32px; border:2px solid var(--border);
+            border-top-color:var(--green); border-radius:50%;
+            animation:spin 0.8s linear infinite; margin:0 auto 16px;
+        }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        /* ── TARGET BANNER ── */
+        .target-banner {
+            background:var(--surface); border:1px solid var(--border);
+            border-radius:8px; padding:20px 24px; margin-bottom:24px;
+            display:flex; align-items:center; justify-content:space-between;
+            flex-wrap:wrap; gap:12px;
+        }
+        .target-label { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:4px; }
+        .target-value { font-size:20px; color:var(--green); letter-spacing:2px; }
+        .banner-actions { display:flex; gap:8px; flex-wrap:wrap; }
+        .export-btn {
+            background:transparent; color:var(--green);
+            border:1px solid var(--green); border-radius:4px;
+            font-family:'Courier New',monospace; font-size:11px;
+            letter-spacing:2px; padding:10px 20px; cursor:pointer;
+            text-decoration:none; text-transform:uppercase; transition:background 0.2s;
+        }
+        .export-btn:hover { background:rgba(0,255,136,0.08); }
+        .export-btn.blue { color:var(--blue); border-color:var(--blue); }
+        .export-btn.blue:hover { background:rgba(68,136,255,0.08); }
+        /* ── GRID ── */
+        .results-grid {
+            display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr));
+            gap:16px; margin-bottom:24px;
+
+        }
+        .full-width { grid-column: 1 / -1; }
+        /* ── CARD ── */
+        .card { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+        .card-header {
+            padding:14px 20px; border-bottom:1px solid var(--border);
+            display:flex; align-items:center; gap:10px; background:var(--surface2);
+        }
+        .card-icon { font-size:14px; }
+        .card-title { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--green); }
+        .card-count {
+            margin-left:auto; background:rgba(0,255,136,0.1);
+            color:var(--green); border-radius:20px; padding:2px 10px; font-size:10px; letter-spacing:1px;
+        }
+        .card-count.red    { background:rgba(255,60,60,0.1);  color:var(--red); }
+        .card-count.yellow { background:rgba(255,170,0,0.1);  color:var(--yellow); }
+        .card-count.orange { background:rgba(255,107,53,0.1); color:var(--orange); }
+        .card-count.blue   { background:rgba(68,136,255,0.1); color:var(--blue); }
+        .card-body { padding:16px 20px; }
+        /* ── USERNAME ── */
+        .username-grid {
+            display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr));
+            gap:8px; padding:16px 20px;
+        }
+        .username-entry {
+            background:var(--bg); border:1px solid var(--border);
+            border-radius:6px; padding:10px 14px;
+            display:flex; flex-direction:column; transition:border-color 0.2s;
+        }
+        .username-entry:hover { border-color:var(--green); }
+        .u-platform { font-size:12px; color:var(--text); font-weight:bold; }
+        .u-category { font-size:9px; letter-spacing:1px; text-transform:uppercase; padding:2px 6px; border-radius:3px; margin-top:2px; display:inline-block; }
+        .cat-Social       { color:#ff6b9d; background:rgba(255,107,157,0.1); }
+        .cat-Video        { color:#ff4444; background:rgba(255,68,68,0.1); }
+        .cat-Dev          { color:var(--green);  background:rgba(0,255,136,0.1); }
+        .cat-Gaming       { color:var(--purple); background:rgba(170,68,255,0.1); }
+        .cat-Creative     { color:var(--yellow); background:rgba(255,170,0,0.1); }
+        .cat-Professional { color:var(--cyan);   background:rgba(0,204,255,0.1); }
+        .cat-Forums       { color:var(--blue);   background:rgba(68,136,255,0.1); }
+        .u-link { color:var(--blue); font-size:10px; text-decoration:none; word-break:break-all; line-height:1.4; margin-top:4px; display:block; }
+        .u-link:hover { color:var(--green); text-decoration:underline; }
+        .cat-header {
+            grid-column: 1 / -1; font-size:10px; letter-spacing:2px; text-transform:uppercase;
+            color:var(--muted); padding:8px 2px 4px; border-bottom:1px solid var(--border); margin-top:8px;
+        }
+        .cat-header:first-child { margin-top:0; }
+        /* ── KV ROWS ── */
+        .kv-row { display:flex; gap:12px; padding:6px 0; border-bottom:1px solid #0d0d18; font-size:12px; }
+        .kv-row:last-child { border-bottom:none; }
+        .kv-key { color:var(--muted); min-width:130px; flex-shrink:0; font-size:10px; letter-spacing:1px; text-transform:uppercase; padding-top:1px; }
+        .kv-val { color:var(--text); word-break:break-all; }
+        /* ── IP / GEO ── */
+        .ip-display { font-size:22px; color:var(--blue); letter-spacing:2px; padding:12px 0 16px; }
+        .geo-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+        .geo-label { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:4px; }
+        .geo-value { font-size:13px; color:var(--text); }
+        /* ── BREACH ── */
+        .breach-item { border-radius:6px; padding:10px 14px; margin-bottom:8px; font-size:12px; border-left:3px solid var(--red); background:rgba(255,60,60,0.05); }
+        .breach-item.critical { border-left-color:#ff0000; background:rgba(255,0,0,0.08); }
+        .breach-item.high     { border-left-color:var(--red);    background:rgba(255,60,60,0.06); }
+        .breach-item.medium   { border-left-color:var(--yellow); background:rgba(255,170,0,0.05); }
+        .breach-item.info     { border-left-color:var(--green);  background:rgba(0,255,136,0.04); }
+        .breach-name    { color:var(--text); font-weight:bold; font-size:12px; }
+        .breach-meta    { display:flex; gap:12px; margin-top:4px; flex-wrap:wrap; }
+        .breach-tag     { font-size:10px; letter-spacing:1px; padding:1px 7px; border-radius:3px; }
+        .breach-source-tag   { color:var(--blue);   background:rgba(68,136,255,0.12); }
+        .breach-sev-critical { color:#ff0000;        background:rgba(255,0,0,0.12); }
+        .breach-sev-high     { color:var(--red);     background:rgba(255,60,60,0.12); }
+        .breach-sev-medium   { color:var(--yellow);  background:rgba(255,170,0,0.12); }
+        .breach-sev-info     { color:var(--green);   background:rgba(0,255,136,0.10); }
+        .breach-date    { color:var(--muted); font-size:10px; }
+        .breach-classes { color:var(--muted); font-size:10px; margin-top:3px; }
+        .breach-records { color:var(--orange); font-size:10px; }
+        /* ── DNS ── */
+        .dns-section { margin-bottom:12px; }
+        .dns-section-title { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:6px; padding-bottom:4px; border-bottom:1px solid var(--border); }
+        .dns-record { font-size:11px; color:var(--text); padding:3px 0; word-break:break-all; }
+        .dns-badge { display:inline-block; font-size:9px; letter-spacing:1px; padding:1px 6px; border-radius:3px; margin-right:6px; }
+        .badge-ok   { color:var(--green);  background:rgba(0,255,136,0.1); }
+        .badge-warn { color:var(--yellow); background:rgba(255,170,0,0.1); }
+        .badge-bad  { color:var(--red);    background:rgba(255,60,60,0.1); }
+        /* ── SSL ── */
+        .ssl-valid   { color:var(--green); }
+        .ssl-warn    { color:var(--yellow); }
+        .ssl-expired { color:var(--red); }
+        .ssl-domains { display:flex; flex-wrap:wrap; gap:6px; margin-top:4px; }
+        .ssl-domain  { font-size:10px; background:rgba(68,136,255,0.1); color:var(--blue); padding:2px 8px; border-radius:3px; }
+        /* ── TECH STACK ── */
+        .tech-tags { display:flex; flex-wrap:wrap; gap:6px; margin-top:6px; }
+        .tech-tag  { font-size:10px; letter-spacing:1px; padding:2px 9px; border-radius:3px; text-transform:uppercase; }
+        .tech-cms       { color:var(--purple); background:rgba(170,68,255,0.12); }
+        .tech-server    { color:var(--cyan);   background:rgba(0,204,255,0.10); }
+        .tech-framework { color:var(--green);  background:rgba(0,255,136,0.10); }
+        .tech-cdn       { color:var(--blue);   background:rgba(68,136,255,0.12); }
+        .tech-analytics { color:var(--yellow); background:rgba(255,170,0,0.10); }
+        .tech-ecommerce { color:var(--orange); background:rgba(255,107,53,0.12); }
+        .tech-hosting   { color:#4ecdc4;       background:rgba(78,205,196,0.10); }
+        .tech-js_libs   { color:#ffd93d;       background:rgba(255,217,61,0.10); }
+        .tech-section-lbl { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-top:10px; margin-bottom:4px; }
+        .sec-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:8px; }
+        .sec-item { display:flex; align-items:center; gap:6px; font-size:11px; }
+        .sec-dot  { width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+        .sec-on   { background:var(--green); }
+        .sec-off  { background:var(--red); }
+        /* ── ARCHIVE ── */
+        .archive-timeline { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+        .archive-year { font-size:10px; padding:3px 10px; border-radius:3px; background:rgba(68,136,255,0.1); color:var(--blue); letter-spacing:1px; }
+        /* ── PHONE ── */
+        .phone-type { display:inline-block; font-size:10px; letter-spacing:1px; padding:2px 8px; border-radius:3px; text-transform:uppercase; margin-bottom:8px; }
+        .type-mobile   { color:var(--green);  background:rgba(0,255,136,0.1); }
+        .type-landline { color:var(--blue);   background:rgba(68,136,255,0.1); }
+        .type-voip     { color:var(--yellow); background:rgba(255,170,0,0.1); }
+        .type-unknown  { color:var(--muted);  background:rgba(85,85,85,0.15); }
+        /* ── EMAIL ── */
+        .score-bar  { height:6px; background:var(--border); border-radius:3px; margin:8px 0; }
+        .score-fill { height:100%; border-radius:3px; transition:width 0.4s; }
+        .email-flag { font-size:11px; color:var(--yellow); padding:3px 0; }
+        /* ── THREAT ── */
+        .threat-flagged { display:flex; align-items:center; gap:10px; padding:12px; border-radius:6px; margin-bottom:14px; font-size:12px; letter-spacing:1px; }
+        .threat-flagged.danger { background:rgba(255,60,60,0.08); border:1px solid var(--red);    color:var(--red); }
+        .threat-flagged.safe   { background:rgba(0,255,136,0.06); border:1px solid var(--border); color:var(--green); }
+        .threat-score-bar  { height:4px; background:var(--border); border-radius:2px; margin-bottom:14px; }
+        .threat-score-fill { height:100%; border-radius:2px; }
+        .finding-item   { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:10px 14px; margin-bottom:8px; font-size:11px; }
+        .finding-source { color:var(--yellow); font-size:10px; letter-spacing:1px; margin-bottom:4px; }
+        /* ── MISC ── */
+        .data-item { display:flex; align-items:flex-start; gap:8px; padding:7px 0; border-bottom:1px solid #0d0d18; font-size:12px; }
+        .data-item:last-child { border-bottom:none; }
+        .data-dot { color:var(--green); margin-top:1px; flex-shrink:0; }
+        .data-val { color:var(--text); word-break:break-all; }
+        .no-data  { color:var(--muted); font-size:12px; letter-spacing:1px; padding:8px 0; }
+        .warn-flag { color:var(--yellow); font-size:10px; padding:2px 0; display:flex; align-items:center; gap:4px; }
+        /* ── PORT SCAN ── */
+        .port-item { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:8px; display:flex; align-items:flex-start; gap:12px; flex-wrap:wrap; }
+        .port-number  { color:var(--cyan);  font-size:15px; font-weight:bold; min-width:55px; }
+        .port-service { color:var(--green); font-size:11px; letter-spacing:1px; text-transform:uppercase; }
+        .port-banner  { color:var(--muted); font-size:10px; word-break:break-all; margin-top:3px; }
+        .port-risk    { color:var(--red);   font-size:10px; margin-top:3px; }
+        .port-risky-badge { font-size:9px; letter-spacing:1px; padding:1px 7px; border-radius:3px; color:var(--red); background:rgba(255,60,60,0.12); margin-left:auto; }
+        /* ── HEADERS ANALYSIS ── */
+        .grade-badge { font-size:28px; font-weight:bold; letter-spacing:2px; padding:8px 20px; border-radius:6px; display:inline-block; margin-bottom:12px; }
+        .grade-A { color:var(--green);  background:rgba(0,255,136,0.1); }
+        .grade-B { color:#8aff44;       background:rgba(138,255,68,0.1); }
+        .grade-C { color:var(--yellow); background:rgba(255,170,0,0.1); }
+        .grade-D { color:var(--orange); background:rgba(255,107,53,0.1); }
+        .grade-F { color:var(--red);    background:rgba(255,60,60,0.1); }
+        .header-check { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:11px; border-bottom:1px solid #0d0d18; }
+        .header-check:last-child { border-bottom:none; }
+        .h-present { color:var(--green); }
+        .h-missing { color:var(--red); }
+        .h-name { flex:1; color:var(--text); }
+        .h-sev  { font-size:9px; letter-spacing:1px; padding:1px 6px; border-radius:3px; }
+        .sev-HIGH   { color:var(--red);    background:rgba(255,60,60,0.12); }
+        .sev-MEDIUM { color:var(--yellow); background:rgba(255,170,0,0.12); }
+        .sev-LOW    { color:var(--muted);  background:rgba(85,85,85,0.15); }
+        .info-leak-item { font-size:10px; padding:4px 0; border-bottom:1px solid #0d0d18; display:flex; gap:8px; flex-wrap:wrap; }
+        .info-leak-item:last-child { border-bottom:none; }
+        .leak-key { color:var(--yellow); min-width:120px; }
+        .leak-val { color:var(--muted);  word-break:break-all; }
+        /* ── EMPLOYEE ── */
+        .employee-item { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:8px; font-size:12px; }
+        .emp-name  { color:var(--text); font-weight:bold; }
+        .emp-title { color:var(--muted); font-size:10px; margin-top:2px; }
+        .emp-meta  { display:flex; gap:8px; flex-wrap:wrap; margin-top:4px; }
+        .emp-tag   { font-size:9px; padding:1px 7px; border-radius:3px; letter-spacing:1px; }
+        .emp-gh { color:var(--green);  background:rgba(0,255,136,0.1); }
+        .emp-li { color:var(--blue);   background:rgba(68,136,255,0.1); }
+        .emp-ct { color:var(--purple); background:rgba(170,68,255,0.1); }
+        .email-guess-item { font-size:10px; color:var(--cyan); padding:3px 0; border-bottom:1px solid #0d0d18; word-break:break-all; }
+        .email-guess-item:last-child { border-bottom:none; }
+        .pattern-item { display:flex; align-items:center; gap:8px; font-size:11px; padding:4px 0; border-bottom:1px solid #0d0d18; }
+        .pattern-item:last-child { border-bottom:none; }
+        .pat-fmt  { color:var(--text); flex:1; font-size:10px; word-break:break-all; }
+        .pat-conf { font-size:9px; padding:1px 6px; border-radius:3px; letter-spacing:1px; }
+        .conf-high   { color:var(--green);  background:rgba(0,255,136,0.1); }
+        .conf-medium { color:var(--yellow); background:rgba(255,170,0,0.1); }
+        .conf-low    { color:var(--muted);  background:rgba(85,85,85,0.1); }
+        /* ── RISK SCORE ── */
+        .risk-display { text-align:center; padding:16px 0 20px; }
+        .risk-number  { font-size:48px; font-weight:bold; letter-spacing:2px; line-height:1; }
+        .risk-level-badge { font-size:12px; letter-spacing:3px; text-transform:uppercase; padding:4px 16px; border-radius:4px; display:inline-block; margin-top:8px; }
+        .risk-Critical { color:#ff0000;       background:rgba(255,0,0,0.12); }
+        .risk-High     { color:var(--red);    background:rgba(255,60,60,0.12); }
+        .risk-Medium   { color:var(--yellow); background:rgba(255,170,0,0.12); }
+        .risk-Low      { color:var(--green);  background:rgba(0,255,136,0.10); }
+        .risk-Minimal  { color:var(--muted);  background:rgba(85,85,85,0.12); }
+        .risk-factor-item { background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:8px 12px; margin-bottom:6px; font-size:11px; }
+        .rf-name { color:var(--text); }
+        .rf-meta { display:flex; gap:8px; margin-top:3px; flex-wrap:wrap; }
+        .rf-pts  { color:var(--orange); font-size:10px; }
+        .rec-item { font-size:11px; color:var(--text); padding:5px 0; border-bottom:1px solid #0d0d18; display:flex; gap:6px; }
+        .rec-item:last-child { border-bottom:none; }
+        .rec-arrow { color:var(--green); flex-shrink:0; }
+        /* ── ROBOTS ── */
+        .path-item { display:flex; align-items:flex-start; gap:8px; padding:5px 0; font-size:11px; border-bottom:1px solid #0d0d18; }
+        .path-item:last-child { border-bottom:none; }
+        .path-dot  { color:var(--muted); flex-shrink:0; }
+        .path-dot.sensitive { color:var(--red); }
+        .path-str  { color:var(--text); word-break:break-all; flex:1; }
+        .path-src  { font-size:9px; color:var(--muted); letter-spacing:1px; margin-left:auto; white-space:nowrap; }
+        .path-reason { font-size:9px; color:var(--yellow); margin-top:2px; }
+        .file-badge { font-size:10px; padding:2px 8px; border-radius:3px; color:var(--green); background:rgba(0,255,136,0.1); display:inline-block; margin:3px 3px 0 0; }
+        .robots-raw { font-size:10px; color:var(--muted); background:var(--bg); border:1px solid var(--border); border-radius:4px; padding:10px; white-space:pre-wrap; word-break:break-all; max-height:180px; overflow-y:auto; margin-top:8px; }
+        /* ── CERT HISTORY ── */
+        .cert-item { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:8px; font-size:11px; }
+        .cert-cn   { color:var(--text); font-weight:bold; margin-bottom:4px; word-break:break-all; }
+        .cert-meta { display:flex; gap:10px; flex-wrap:wrap; }
+        .cert-issuer { color:var(--blue); font-size:10px; }
+        .cert-dates  { color:var(--muted); font-size:10px; }
+        .cert-expired-badge  { font-size:9px; padding:1px 6px; border-radius:3px; color:var(--red);    background:rgba(255,60,60,0.12); letter-spacing:1px; }
+        .cert-wildcard-badge { font-size:9px; padding:1px 6px; border-radius:3px; color:var(--yellow); background:rgba(255,170,0,0.12); letter-spacing:1px; }
+        /* ── TIMELINE ── */
+        .timeline-wrap { padding:16px 20px; }
+        .timeline-event { display:flex; gap:14px; padding:10px 0; border-bottom:1px solid #0d0d18; align-items:flex-start; }
+        .timeline-event:last-child { border-bottom:none; }
+        .tl-icon   { font-size:16px; flex-shrink:0; margin-top:1px; }
+        .tl-date   { min-width:90px; font-size:10px; color:var(--muted); letter-spacing:1px; padding-top:2px; flex-shrink:0; }
+        .tl-body   { flex:1; }
+        .tl-type   { font-size:12px; color:var(--text); font-weight:bold; }
+        .tl-detail { font-size:10px; color:var(--muted); margin-top:2px; }
+        .tl-source { font-size:9px; color:var(--blue); margin-top:2px; letter-spacing:1px; }
+        .tl-sev    { font-size:9px; padding:1px 6px; border-radius:3px; letter-spacing:1px; margin-left:auto; white-space:nowrap; align-self:flex-start; flex-shrink:0; }
+        .tl-sev-critical { color:#ff0000;       background:rgba(255,0,0,0.12); }
+        .tl-sev-high     { color:var(--red);    background:rgba(255,60,60,0.12); }
+        .tl-sev-medium   { color:var(--yellow); background:rgba(255,170,0,0.12); }
+        .tl-sev-low      { color:var(--blue);   background:rgba(68,136,255,0.10); }
+        .tl-sev-info     { color:var(--muted);  background:rgba(85,85,85,0.12); }
+        /* ── CLOUD DETECTOR ── */
+        .cloud-provider-item { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:8px; }
+        .cloud-name { color:var(--text); font-weight:bold; font-size:12px; }
+        .cloud-meta { display:flex; gap:8px; margin-top:4px; flex-wrap:wrap; }
+        .cloud-conf-high   { font-size:9px; padding:1px 7px; border-radius:3px; color:var(--green);  background:rgba(0,255,136,0.1); letter-spacing:1px; }
+        .cloud-conf-medium { font-size:9px; padding:1px 7px; border-radius:3px; color:var(--yellow); background:rgba(255,170,0,0.1);  letter-spacing:1px; }
+        .cloud-conf-low    { font-size:9px; padding:1px 7px; border-radius:3px; color:var(--muted);  background:rgba(85,85,85,0.12);   letter-spacing:1px; }
+        .cloud-method { font-size:10px; color:var(--muted); margin-top:4px; }
+        .cloud-badge { display:inline-block; font-size:9px; letter-spacing:1px; padding:1px 7px; border-radius:3px; margin-right:4px; }
+        .cloud-proxied  { color:var(--yellow); background:rgba(255,170,0,0.12); }
+        .cloud-cdn      { color:var(--cyan);   background:rgba(0,204,255,0.12); }
+        .cloud-header-row { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px; }
+        /* ── PASTE MONITOR ── */
+        .paste-item { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:10px 14px; margin-bottom:8px; font-size:11px; }
+        .paste-item.critical { border-left:3px solid #ff0000; }
+        .paste-item.high     { border-left:3px solid var(--red); }
+        .paste-item.medium   { border-left:3px solid var(--yellow); }
+        .paste-item.low      { border-left:3px solid var(--muted); }
+        .paste-title  { color:var(--text); font-weight:bold; font-size:12px; margin-bottom:4px; }
+        .paste-meta   { display:flex; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+        .paste-snippet { color:var(--muted); font-size:10px; line-height:1.5; background:rgba(0,0,0,0.3); padding:6px 8px; border-radius:4px; word-break:break-all; max-height:60px; overflow:hidden; }
+        .paste-keywords { display:flex; flex-wrap:wrap; gap:4px; margin-top:6px; }
+        .paste-kw { font-size:9px; padding:1px 6px; border-radius:3px; color:var(--orange); background:rgba(255,107,53,0.12); letter-spacing:1px; }
+        /* ── DIRECTORY DISCOVERY ── */
+        .dir-item { display:flex; align-items:center; gap:8px; padding:5px 0; font-size:11px; border-bottom:1px solid #0d0d18; flex-wrap:wrap; }
+        .dir-item:last-child { border-bottom:none; }
+        .dir-path   { color:var(--text); flex:1; word-break:break-all; font-size:10px; font-family:'Courier New',monospace; }
+        .dir-status { font-size:9px; padding:1px 6px; border-radius:3px; letter-spacing:1px; flex-shrink:0; }
+        .status-200 { color:var(--green);  background:rgba(0,255,136,0.1); }
+        .status-301,.status-302 { color:var(--blue);   background:rgba(68,136,255,0.1); }
+        .status-401,.status-403 { color:var(--yellow); background:rgba(255,170,0,0.12); }
+        .status-500 { color:var(--red);    background:rgba(255,60,60,0.12); }
+        .dir-size   { color:var(--muted); font-size:9px; flex-shrink:0; }
+        .dir-sensitive-badge { font-size:9px; padding:1px 6px; border-radius:3px; color:var(--red); background:rgba(255,60,60,0.12); letter-spacing:1px; flex-shrink:0; }
+        .dir-tabs { display:flex; gap:4px; margin-bottom:12px; }
+        .dir-tab { font-size:10px; letter-spacing:1px; padding:4px 12px; border-radius:4px; cursor:pointer; text-transform:uppercase; border:1px solid var(--border); color:var(--muted); background:transparent; font-family:'Courier New',monospace; transition:all 0.2s; }
+        .dir-tab.active { color:var(--green); border-color:var(--green); background:rgba(0,255,136,0.07); }
+        .dir-panel { display:none; }
+        .dir-panel.active { display:block; }
+        /* ── SAVE CASE BUTTON ── */
+        .save-case-btn {
+            background:transparent; color:var(--purple); border:1px solid var(--purple);
+            border-radius:4px; font-family:'Courier New',monospace; font-size:11px;
+            letter-spacing:2px; padding:10px 20px; cursor:pointer; text-transform:uppercase; transition:background 0.2s;
+        }
+        .save-case-btn:hover { background:rgba(170,68,255,0.08); }
+        /* ── VT / ABUSE / URLSCAN / OTX / DORKS ── */
+        .intel-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(340px,1fr)); gap:16px; margin-bottom:24px; }
+        /* verdict pill */
+        .vt-verdict { display:flex; align-items:center; gap:16px; padding:14px 0 18px; }
+        .vt-big { font-size:40px; font-weight:bold; line-height:1; }
+        .vt-clean { color:var(--green); }
+        .vt-danger { color:var(--red); }
+        .vt-warn  { color:var(--yellow); }
+        .vt-engine-row { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-bottom:12px; }
+        .vt-engine-box { background:var(--bg); border:1px solid var(--border); border-radius:6px; padding:8px 10px; text-align:center; }
+        .vt-engine-num { font-size:20px; font-weight:bold; }
+        .vt-engine-lbl { font-size:9px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-top:2px; }
+        .vt-engine-num.red    { color:var(--red); }
+        .vt-engine-num.yellow { color:var(--yellow); }
+        .vt-engine-num.green  { color:var(--green); }
+        .vt-engine-num.muted  { color:var(--muted); }
+        /* abuse score bar */
+        .abuse-score-wrap { display:flex; align-items:center; gap:12px; margin:10px 0 14px; }
+        .abuse-score-num  { font-size:36px; font-weight:bold; min-width:50px; }
+        .abuse-score-bar  { flex:1; height:8px; background:var(--border); border-radius:4px; }
+        .abuse-score-fill { height:100%; border-radius:4px; }
+        /* urlscan verdict */
+        .urlscan-verdict { display:inline-block; font-size:13px; letter-spacing:2px; padding:6px 16px; border-radius:6px; text-transform:uppercase; margin-bottom:12px; }
+        .urlscan-malicious { color:var(--red);   background:rgba(255,60,60,0.1); border:1px solid var(--red); }
+        .urlscan-clean     { color:var(--green); background:rgba(0,255,136,0.08); border:1px solid var(--green); }
+        .urlscan-unknown   { color:var(--muted); background:rgba(85,85,85,0.12); border:1px solid var(--border); }
+        /* dorks */
+        .dork-category { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; padding:8px 0 4px; border-bottom:1px solid var(--border); margin-bottom:4px; margin-top:12px; }
+        .dork-category:first-of-type { margin-top:0; }
+        .dork-item { display:flex; align-items:flex-start; gap:10px; padding:7px 0; border-bottom:1px solid #0d0d18; }
+        .dork-item:last-child { border-bottom:none; }
+        .dork-desc { font-size:11px; color:var(--text); flex:1; }
+        .dork-link { font-size:10px; color:var(--blue); text-decoration:none; white-space:nowrap; flex-shrink:0; }
+        .dork-link:hover { color:var(--green); text-decoration:underline; }
+        .dork-cat-badge { font-size:9px; padding:1px 7px; border-radius:3px; letter-spacing:1px; white-space:nowrap; flex-shrink:0; }
+        .dork-sensitive { color:var(--red);    background:rgba(255,60,60,0.12); }
+        .dork-dirs      { color:var(--yellow); background:rgba(255,170,0,0.12); }
+        .dork-mentions  { color:var(--blue);   background:rgba(68,136,255,0.12); }
+        .dork-tech      { color:var(--green);  background:rgba(0,255,136,0.10); }
+        .dork-default   { color:var(--muted);  background:rgba(85,85,85,0.12); }
+        .api-error-note { font-size:10px; color:var(--muted); padding:6px 10px; background:rgba(85,85,85,0.1); border-radius:4px; border-left:2px solid var(--muted); margin-top:10px; }
+        /* ── GRAPH ── */
+        .graph-card   { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; margin-bottom:24px; }
+        .graph-header { padding:14px 20px; border-bottom:1px solid var(--border); background:var(--surface2); display:flex; align-items:center; gap:10px; }
+        .graph-title  { font-size:11px; letter-spacing:2px; text-transform:uppercase; color:var(--green); }
+        #graph { width:100%; height:500px; display:block; }
+        .legend { display:flex; flex-wrap:wrap; gap:16px; padding:14px 20px; border-top:1px solid var(--border); }
+        .legend-item { display:flex; align-items:center; gap:6px; font-size:11px; color:var(--muted); }
+        .legend-dot  { width:10px; height:10px; border-radius:50%; }
+        /* ── MODAL ── */
+        .modal-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.7); z-index:200; align-items:center; justify-content:center; }
+        .modal-overlay.open { display:flex; }
+        .modal-box { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:28px; width:100%; max-width:480px; }
+        .modal-title { color:var(--green); font-size:13px; letter-spacing:3px; text-transform:uppercase; margin-bottom:20px; }
+        .modal-field { margin-bottom:14px; }
+        .modal-label { font-size:10px; color:var(--muted); letter-spacing:1px; text-transform:uppercase; margin-bottom:6px; display:block; }
+        .modal-input { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:5px; color:var(--text); font-family:'Courier New',monospace; font-size:12px; padding:10px 14px; outline:none; transition:border-color 0.2s; }
+        .modal-input:focus { border-color:var(--green); }
+        .modal-select { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:5px; color:var(--text); font-family:'Courier New',monospace; font-size:12px; padding:10px 14px; outline:none; }
+        .modal-actions { display:flex; gap:8px; justify-content:flex-end; margin-top:20px; }
+        .modal-cancel { background:transparent; color:var(--muted); border:1px solid var(--border); border-radius:4px; font-family:'Courier New',monospace; font-size:11px; padding:8px 18px; cursor:pointer; }
+        .modal-submit { background:var(--green); color:var(--bg); border:none; border-radius:4px; font-family:'Courier New',monospace; font-size:11px; font-weight:bold; padding:8px 18px; cursor:pointer; letter-spacing:1px; }
+        .tag-pill { display:inline-block; font-size:9px; letter-spacing:1px; padding:1px 7px; border-radius:3px; text-transform:uppercase; }
+        /* ── CAPTCHA ── */
+.captcha-row {
+    margin-top: 16px;
+    text-align: center;
+}
+
+.captcha-box {
+    display: inline-flex;
+    align-items: center;
+    gap: 14px;
+    flex-wrap: wrap;
+    justify-content: center;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 22px;
+}
+
+.captcha-box label {
+    font-size: 11px;
+    color: var(--text);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+.captcha-box input[type="number"] {
+    width: 90px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--green);
+    font-family: 'Courier New', monospace;
+    font-size: 14px;
+    font-weight: bold;
+    text-align: center;
+    padding: 9px 10px;
+    outline: none;
+    transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.captcha-box input[type="number"]:focus {
+    border-color: var(--green);
+    box-shadow: 0 0 0 3px rgba(0,255,136,0.12);
+}
+
+.captcha-box input[type="number"]::placeholder {
+    color: var(--muted);
+    font-weight: normal;
+}
+
+.captcha-box input[type="number"]::-webkit-inner-spin-button,
+.captcha-box input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
+.captcha-box input[type="number"] {
+    -moz-appearance: textfield;
+}
+    </style>
+</head>
+<body>
+
+<nav>
+    <span class="brand">⬡ OSINT</span>
+    <div class="nav-links">
+        <a href="/">Scanner</a>
+<a href="/image-osint">Image OSINT</a>
+    </div>
+</nav>
+
+<div class="page">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+            <div class="flash">{{ msg }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <div class="search-wrap">
+        <div class="search-title">⬡ OSINT</div>
+        <div class="search-sub">Open Source Intelligence Platform</div>
+       <form method="POST" id="scanForm">
+    <div class="search-row">
+        <input name="target" id="targetInput"
+            placeholder="domain.com / IP / email / +1234567890 / username"
+            value="{{ result.get('target','') if result else '' }}"
+            required autocomplete="off">
+        <button type="submit" class="btn-scan" id="scanBtn">Scan</button>
+    </div>
+    <div class="captcha-row">
+        {{ captcha|safe }}
+    </div>
+</form>
+    </div>
+
+    <div id="loader">
+        <div class="spinner"></div>
+        SCANNING TARGET...
+    </div>
+
+    {% if result and not result.get("task") %}
+    {% set target = result.get("target","") %}
+
+    <div class="target-banner">
+        <div>
+            <div class="target-label">Target</div>
+            <div class="target-value">{{ target }}</div>
+        </div>
+        <div class="banner-actions">
+            <a href="/export" class="export-btn">⬇ Export PDF</a>
+            <button class="save-case-btn" onclick="document.getElementById('caseModal').classList.add('open')">📁 Save Case</button>
+        </div>
+    </div>
+
+    {# ── SAVE CASE MODAL ── #}
+    <div class="modal-overlay" id="caseModal">
+        <div class="modal-box">
+            <div class="modal-title">📁 Save Investigation Case</div>
+            <form method="POST" action="/cases/create">
+                <input type="hidden" name="target" value="{{ target }}">
+                <div class="modal-field">
+                    <label class="modal-label">Case Title</label>
+                    <input class="modal-input" name="title" value="Investigation: {{ target }}" required>
+                </div>
+                <div class="modal-field">
+                    <label class="modal-label">Priority</label>
+                    <select class="modal-select" name="priority">
+                        <option value="low">Low</option>
+                        <option value="medium" selected>Medium</option>
+                        <option value="high">High</option>
+                        <option value="critical">Critical</option>
+                    </select>
+                </div>
+                <div class="modal-field">
+                    <label class="modal-label">Tags (comma-separated)</label>
+                    <input class="modal-input" name="tags" placeholder="osint, domain, threat">
+                </div>
+                <div class="modal-field">
+                    <label class="modal-label">Description</label>
+                    <textarea class="modal-input" name="description" rows="3" placeholder="Investigation notes..."></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="modal-cancel" onclick="document.getElementById('caseModal').classList.remove('open')">Cancel</button>
+                    <button type="submit" class="modal-submit">Save Case</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <div class="results-grid">
+
+        {# ══ RISK SCORE ══ #}
+        {% set rs = result.get("risk_score") %}
+        {% if rs and rs is mapping and not rs.get("error") %}
+        <div class="card full-width">
+            <div class="card-header">
+                <span class="card-icon">⚠️</span>
+                <span class="card-title">Risk Score</span>
+                <span class="card-count {% if rs.get('total_score',0) >= 60 %}red{% elif rs.get('total_score',0) >= 40 %}yellow{% endif %}">
+                    {{ rs.get("total_score",0) }}/100
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="risk-display">
+                    <div class="risk-number {% if rs.get('total_score',0) >= 60 %}ssl-expired{% elif rs.get('total_score',0) >= 40 %}ssl-warn{% else %}ssl-valid{% endif %}">
+                        {{ rs.get("total_score",0) }}
+                    </div>
+                    <div class="risk-level-badge risk-{{ rs.get('risk_level','Low') }}">
+                        {{ rs.get("risk_level","Low") }} Risk
+                    </div>
+                </div>
+                <div class="score-bar" style="height:8px;margin-bottom:16px">
+                    <div class="score-fill" style="width:{{ rs.get('total_score',0) }}%;background:{% if rs.get('total_score',0) >= 60 %}var(--red){% elif rs.get('total_score',0) >= 40 %}var(--yellow){% else %}var(--green){% endif %}"></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                    <div>
+                        <div class="dns-section-title" style="margin-bottom:8px">Top Risk Factors</div>
+                        {% for f in rs.get("factors",[])[:6] %}
+                        <div class="risk-factor-item">
+                            <div class="rf-name">{{ f.get("name","?") }}</div>
+                            <div class="rf-meta">
+                                <span class="breach-tag breach-sev-{{ f.get('severity','medium') }}">{{ f.get("severity","?") | upper }}</span>
+                                <span class="rf-pts">+{{ f.get("score",0) }} pts</span>
+                                <span style="color:var(--muted);font-size:10px">{{ f.get("category","") }}</span>
+                            </div>
+                            {% if f.get("detail") %}<div style="font-size:10px;color:var(--muted);margin-top:2px">{{ f.get("detail") }}</div>{% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    <div>
+                        <div class="dns-section-title" style="margin-bottom:8px">Recommendations</div>
+                        {% for rec in rs.get("recommendations",[]) %}
+                        <div class="rec-item"><span class="rec-arrow">→</span><span>{{ rec }}</span></div>
+                        {% endfor %}
+                        {% if not rs.get("recommendations") %}
+                        <p class="no-data" style="color:var(--green)">✓ No critical recommendations.</p>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ IDENTITY SCORE ══ #}
+        {% set ids = result.get("identity_score") %}
+        {% if ids and ids is mapping and not ids.get("error") %}
+        <div class="card full-width">
+            <div class="card-header">
+                <span class="card-icon">🪪</span>
+                <span class="card-title">Identity Confidence Score</span>
+                <span class="card-count {{ ids.get('color','green') }}">
+                    {{ ids.get('total', 0) }}/100 · {{ ids.get('confidence', 'MINIMAL') }}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="score-bar" style="height:8px;margin-bottom:20px">
+                    <div class="score-fill" style="width:{{ ids.get('total',0) }}%;background:{% if ids.get('color') == 'red' %}var(--red){% elif ids.get('color') == 'yellow' %}var(--yellow){% elif ids.get('color') == 'blue' %}var(--blue){% else %}var(--green){% endif %}"></div>
+                </div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                    <div>
+                        <div class="dns-section-title" style="margin-bottom:8px">Signal Breakdown</div>
+                        {% for b in ids.get('breakdown', []) %}
+                        <div class="risk-factor-item">
+                            <div class="rf-name">{{ b.get('label','?') }}</div>
+                            <div class="rf-meta">
+                                <span class="breach-tag breach-source-tag">{{ b.get('category','?') }}</span>
+                                <span class="rf-pts">+{{ b.get('points', 0) }} pts</span>
+                            </div>
+                            {% if b.get('note') %}<div style="font-size:10px;color:var(--muted);margin-top:2px">{{ b.get('note') }}</div>{% endif %}
+                        </div>
+                        {% else %}
+                        <p class="no-data">No matching signals found.</p>
+                        {% endfor %}
+                    </div>
+                    <div>
+                        <div class="dns-section-title" style="margin-bottom:8px">Category Totals</div>
+                        {% for cat, pts in ids.get('signals', {}).items() %}
+                        <div class="kv-row">
+                            <span class="kv-key">{{ cat | capitalize }}</span>
+                            <span class="kv-val">
+                                <div class="score-bar" style="height:4px;margin:4px 0;width:120px;display:inline-block">
+                                    <div class="score-fill" style="width:{{ [pts * 5, 100] | min }}%;background:var(--green)"></div>
+                                </div>
+                                <span style="color:var(--green);margin-left:8px">{{ pts }} pts</span>
+                            </span>
+                        </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ CLOUD DETECTOR ══ #}
+        {% set cd = result.get("cloud") %}
+        {% if cd and cd is mapping and not cd.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">☁️</span>
+                <span class="card-title">Cloud Provider</span>
+                <span class="card-count {% if cd.get('providers') %}blue{% endif %}">{{ cd.get("primary_provider","Unknown") }}</span>
+            </div>
+            <div class="card-body">
+                <div class="cloud-header-row">
+                    {% if cd.get("is_proxied") %}<span class="cloud-badge cloud-proxied">Proxied</span>{% endif %}
+                    {% if cd.get("cdn_detected") %}<span class="cloud-badge cloud-cdn">CDN</span>{% endif %}
+                    {% if cd.get("ip") %}<span style="color:var(--blue);font-size:12px">{{ cd.get("ip") }}</span>{% endif %}
+                </div>
+                {% if cd.get("resolved_cname") %}<div class="kv-row"><span class="kv-key">CNAME</span><span class="kv-val" style="font-size:10px">{{ cd.get("resolved_cname") }}</span></div>{% endif %}
+                {% for p in cd.get("providers",[]) %}
+                <div class="cloud-provider-item">
+                    <div class="cloud-name">{{ p.get("name","?") }}</div>
+                    <div class="cloud-meta"><span class="cloud-conf-{{ p.get('confidence','low') }}">{{ p.get("confidence","?") | upper }}</span></div>
+                    <div class="cloud-method">{{ p.get("detection_methods",[]) | join(" · ") }}</div>
+                </div>
+                {% endfor %}
+                {% if cd.get("http_headers") %}
+                <div class="dns-section-title" style="margin-top:10px">Relevant Headers</div>
+                {% for k, v in cd.get("http_headers",{}).items() %}
+                <div class="info-leak-item"><span class="leak-key">{{ k }}</span><span class="leak-val">{{ v[:60] }}</span></div>
+                {% endfor %}
+                {% endif %}
+                <div style="font-size:10px;color:var(--muted);margin-top:8px">{{ cd.get("summary","") }}</div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ PASTE MONITOR ══ #}
+        {% set pm = result.get("paste_monitor") %}
+        {% if pm and pm is mapping and not pm.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">📋</span>
+                <span class="card-title">Paste Monitor</span>
+                {% if pm.get("total_found",0) > 0 %}
+                <span class="card-count {% if pm.get('critical_count',0) > 0 %}red{% elif pm.get('high_count',0) > 0 %}orange{% else %}yellow{% endif %}">{{ pm.get("total_found",0) }} found</span>
+                {% else %}<span class="card-count">Clean</span>{% endif %}
+            </div>
+            <div class="card-body">
+                {% if pm.get("total_found",0) > 0 %}
+                <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;font-size:11px">
+                    {% if pm.get("critical_count",0) %}<span style="color:#ff0000">● {{ pm.get("critical_count") }} Critical</span>{% endif %}
+                    {% if pm.get("high_count",0) %}<span style="color:var(--red)">● {{ pm.get("high_count") }} High</span>{% endif %}
+                    {% if pm.get("medium_count",0) %}<span style="color:var(--yellow)">● {{ pm.get("medium_count") }} Medium</span>{% endif %}
+                    {% if pm.get("low_count",0) %}<span style="color:var(--muted)">● {{ pm.get("low_count") }} Low</span>{% endif %}
+                </div>
+                {% for m in pm.get("mentions",[])[:8] %}
+                <div class="paste-item {{ m.get('severity','low') }}">
+                    <div class="paste-title">{{ m.get("title","Untitled")[:60] }}</div>
+                    <div class="paste-meta">
+                        <span class="breach-tag breach-source-tag">{{ m.get("source","?") }}</span>
+                        <span class="breach-tag breach-sev-{{ m.get('severity','low') }}">{{ m.get("severity","?") | upper }}</span>
+                        {% if m.get("date") %}<span style="color:var(--muted);font-size:10px">{{ m.get("date") }}</span>{% endif %}
+                        {% if m.get("paste_url") %}<a href="{{ m.get('paste_url') }}" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px">View ↗</a>{% endif %}
+                    </div>
+                    {% if m.get("snippet") %}<div class="paste-snippet">{{ m.get("snippet","")[:200] }}</div>{% endif %}
+                    {% if m.get("keywords_found") %}
+                    <div class="paste-keywords">{% for kw in m.get("keywords_found",[])[:6] %}<span class="paste-kw">{{ kw }}</span>{% endfor %}</div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% else %}
+                <p class="no-data" style="color:var(--green)">✓ No paste mentions found.</p>
+                <div style="font-size:10px;color:var(--muted);margin-top:8px">Sources checked: {{ pm.get("sources_checked",[]) | join(", ") }}</div>
+                {% endif %}
+                <div style="font-size:10px;color:var(--muted);margin-top:8px">Scanned: {{ pm.get("scanned_at","") }}</div>
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ USERNAMES ══ #}
+        {% set unames = result.get("username") %}
+        <div class="card full-width">
+            <div class="card-header">
+                <span class="card-icon">👤</span>
+                <span class="card-title">Usernames Found</span>
+                {% if unames and unames | list | length > 0 %}<span class="card-count">{{ unames | list | length }} platforms</span>{% endif %}
+            </div>
+            {% if unames and unames is iterable and unames | list | length > 0 %}
+            <div class="username-grid">
+                {% set ns = namespace(last_cat="") %}
+                {% for u in unames %}
+                    {% set cat = u.get("category","Other") if u is mapping else "Other" %}
+                    {% if cat != ns.last_cat %}
+                        <div class="cat-header">{{ cat }}</div>
+                        {% set ns.last_cat = cat %}
+                    {% endif %}
+                    <div class="username-entry">
+                        <div class="u-platform">{{ u.get("name","?") if u is mapping else u }}</div>
+                        <div class="u-category cat-{{ cat }}">{{ cat }}</div>
+                        {% if u is mapping and u.get("url") %}
+                        <a href="{{ u.get('url') }}" target="_blank" rel="noopener" class="u-link">{{ u.get("url") }}</a>
+                        {% endif %}
+                    </div>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="card-body"><p class="no-data">No username matches found.</p></div>
+            {% endif %}
+        </div>
+
+        {# ══ PHONE INTELLIGENCE ══ #}
+        {% set ph = result.get("phone") %}
+        {% if ph and ph is mapping and not ph.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">📱</span>
+                <span class="card-title">Phone Intelligence</span>
+                <span class="card-count {% if not ph.get('valid') %}red{% endif %}">
+                    {% if ph.get('valid') %}✓ Valid{% else %}✗ Invalid{% endif %}
+                </span>
+            </div>
+            <div class="card-body">
+                <div class="ip-display" style="font-size:20px;margin-bottom:4px">
+                    {{ ph.get("international", ph.get("raw", "—")) }}
+                </div>
+                <span class="phone-type type-{{ ph.get('line_type','unknown') }}" style="margin-bottom:14px;display:inline-block">
+                    {{ ph.get("line_type","unknown") | upper }}
+                </span>
+                {% set conf = ph.get("confidence", 0) %}
+                <div style="margin-bottom:14px">
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">
+                        <span>CONFIDENCE</span>
+                        <span style="color:{% if conf >= 70 %}var(--green){% elif conf >= 40 %}var(--yellow){% else %}var(--red){% endif %}">
+                            {{ conf }}% · {{ ph.get("confidence_label","LOW") }}
+                        </span>
+                    </div>
+                    <div class="score-bar">
+                        <div class="score-fill" style="width:{{ conf }}%;background:{% if conf >= 70 %}var(--green){% elif conf >= 40 %}var(--yellow){% else %}var(--red){% endif %}"></div>
+                    </div>
+                </div>
+                <div class="kv-row"><span class="kv-key">Country</span><span class="kv-val">{{ ph.get("country_name","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">Region</span><span class="kv-val">{{ ph.get("region","—") or "—" }}</span></div>
+                <div class="kv-row"><span class="kv-key">Carrier</span><span class="kv-val">{{ ph.get("carrier_name","—") or "—" }}</span></div>
+                <div class="kv-row"><span class="kv-key">E.164</span><span class="kv-val">{{ ph.get("e164","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">National</span><span class="kv-val">{{ ph.get("national","—") }}</span></div>
+                {% if ph.get("timezones") %}
+                <div class="kv-row"><span class="kv-key">Timezone</span><span class="kv-val">{{ ph.get("timezones", [])[0] }}</span></div>
+                {% endif %}
+                {% set risk = ph.get("risk") %}
+                {% if risk and risk is mapping %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                        <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">Phone Risk</span>
+                        <span class="breach-tag {% if risk.get('level') == 'LOW' %}breach-sev-info{% elif risk.get('level') == 'MEDIUM' %}breach-sev-medium{% else %}breach-sev-high{% endif %}">
+                            {{ risk.get("level","?") }}
+                        </span>
+                        <span style="color:var(--muted);font-size:10px">{{ risk.get("score",0) }}/100</span>
+                    </div>
+                    {% for reason in risk.get("reasons", []) %}
+                    <div style="font-size:11px;padding:2px 0;color:{% if reason.startswith('✓') %}var(--green){% elif reason.startswith('⚠') %}var(--yellow){% else %}var(--red){% endif %}">
+                        {{ reason }}
+                    </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% set corr = ph.get("correlation") %}
+                {% if corr and corr is mapping %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Cross-Correlation</div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px">
+                        <span>CORRELATION CONFIDENCE</span>
+                        <span style="color:var(--green)">{{ corr.get("confidence",0) }}% · {{ corr.get("confidence_label","LOW") }}</span>
+                    </div>
+                    <div class="score-bar" style="margin-bottom:10px">
+                        <div class="score-fill" style="width:{{ corr.get('confidence',0) }}%;background:var(--green)"></div>
+                    </div>
+                    {% if corr.get("usernames") %}
+                    <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin:8px 0 4px">USERNAMES ({{ corr.get("usernames")|length }} found)</div>
+                    {% for u in corr.get("usernames",[])[:4] %}
+                    <div style="font-size:11px;color:var(--text);padding:2px 0">
+                        {{ u.get("name","?") if u is mapping else u }}
+                        {% if u is mapping and u.get("url") %} — <a href="{{ u.get('url') }}" target="_blank" style="color:var(--blue);font-size:10px">↗</a>{% endif %}
+                    </div>
+                    {% endfor %}
+                    {% endif %}
+                    {% if corr.get("leaks") %}
+                    <div style="font-size:10px;color:var(--red);letter-spacing:1px;margin:8px 0 4px">⚠ LEAKS ({{ corr.get("leaks")|length }} found)</div>
+                    {% for lk in corr.get("leaks",[])[:3] %}
+                    <div style="font-size:11px;color:var(--red);padding:2px 0">{{ lk.get("breach_name") or lk.get("name","?") if lk is mapping else lk }}</div>
+                    {% endfor %}
+                    {% endif %}
+                    {% if not corr.get("usernames") and not corr.get("leaks") %}
+                    <p class="no-data" style="color:var(--green)">✓ No cross-correlations found.</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                {# ══ SCAM / FRAUD INTELLIGENCE ══ #}
+                {% set scam = ph.get("scam") %}
+                {% if scam and scam.get("available") %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                        <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">Scam / Fraud Intelligence</span>
+                        <span class="tag-pill" style="{% if scam.get('source') == 'provider' %}color:var(--green);background:rgba(0,255,136,0.1){% else %}color:var(--yellow);background:rgba(255,170,0,0.1){% endif %}">
+                            {{ "PROVIDER DATA" if scam.get("source") == "provider" else "HEURISTIC ESTIMATE" }}
+                        </span>
+                    </div>
+                    {% if scam.get("fraud_score") %}
+                    <div class="kv-row">
+                        <span class="kv-key">Fraud Score</span>
+                        <span class="kv-val" style="color:{% if scam.get('fraud_score') == 'High' %}var(--red){% elif scam.get('fraud_score') == 'Medium' %}var(--yellow){% else %}var(--green){% endif %}">
+                            {{ scam.get("fraud_score") }}
+                        </span>
+                    </div>
+                    {% endif %}
+                    {% if scam.get("spam_reports") is not none %}<div class="kv-row"><span class="kv-key">Spam Reports</span><span class="kv-val">{{ scam.get("spam_reports") }}</span></div>{% endif %}
+                    {% if scam.get("robocall_reports") is not none %}<div class="kv-row"><span class="kv-key">Robocall Reports</span><span class="kv-val">{{ scam.get("robocall_reports") }}</span></div>{% endif %}
+                    {% if scam.get("last_reported") %}<div class="kv-row"><span class="kv-key">Last Reported</span><span class="kv-val">{{ scam.get("last_reported") }}</span></div>{% endif %}
+                    {% if scam.get("fraud_score_basis") %}
+                    <div style="margin-top:6px">
+                        {% for b in scam.get("fraud_score_basis",[]) %}
+                        <div style="font-size:10px;color:var(--muted);padding:2px 0">• {{ b }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    <div class="api-error-note" style="margin-top:8px">ℹ {{ scam.get("note") }}</div>
+                </div>
+                {% elif scam %}
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ scam.get("note") }}</div>
+                {% endif %}
+
+                {# ══ VOIP / VIRTUAL NUMBER CHECK ══ #}
+                {% set voip = ph.get("voip") %}
+                {% if voip and voip.get("available") %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">VOIP / Virtual Number Check</div>
+                    <span class="tag-pill" style="{% if voip.get('is_voip') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--green);background:rgba(0,255,136,0.1){% endif %}">
+                        {{ "LIKELY VOIP" if voip.get("is_voip") else "NOT VOIP" }} · {{ voip.get("confidence","low") | upper }} CONFIDENCE
+                    </span>
+                    {% if voip.get("matched_provider") %}<div style="font-size:10px;color:var(--muted);margin-top:6px">Matched provider: {{ voip.get("matched_provider") }}</div>{% endif %}
+                    <div style="font-size:10px;color:var(--muted);margin-top:4px">{{ voip.get("note","") }}</div>
+                </div>
+                {% endif %}
+
+                {# ══ PORTING HISTORY ══ #}
+                {% set porting = ph.get("porting") %}
+                {% if porting and porting.get("available") %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Porting History</div>
+                    <span class="tag-pill" style="{% if porting.get('ported') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--green);background:rgba(0,255,136,0.1){% endif %}">
+                        {{ "PORTED" if porting.get("ported") else "NOT PORTED" }}
+                    </span>
+                    <div style="font-size:10px;color:var(--muted);margin-top:6px">{{ porting.get("note","") }}</div>
+                </div>
+                {% elif porting %}
+                <div class="api-error-note" style="margin-top:10px">ℹ {{ porting.get("note","Porting history unavailable.") }}</div>
+                {% endif %}
+
+                {# ══ BUSINESS DIRECTORY (only renders if a real match exists) ══ #}
+                {% set biz = ph.get("business") %}
+                {% if biz and biz.get("available") %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Business Directory</div>
+                    <div class="kv-row"><span class="kv-key">Name</span><span class="kv-val">{{ biz.get("name","—") }}</span></div>
+                    <div class="kv-row"><span class="kv-key">Type</span><span class="kv-val">{{ biz.get("type","—") }}</span></div>
+                    <div style="font-size:10px;color:var(--muted);margin-top:6px">Source: {{ biz.get("source","—") }}</div>
+                </div>
+                {% endif %}
+
+                {# ══ REVERSE PHONE OSINT — PUBLIC MENTION SEARCH SUGGESTIONS ══ #}
+                {% set mentions = ph.get("public_mentions") %}
+                {% if mentions %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Reverse Phone OSINT</div>
+                    <div class="api-error-note" style="margin-bottom:8px">ℹ These are unverified search links, not confirmed matches. Open each and check manually.</div>
+                    {% set ns2 = namespace(last_cat="") %}
+                    {% for m in mentions %}
+                        {% if m.get("category") != ns2.last_cat %}
+                        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px">{{ m.get("category") }}</div>
+                        {% set ns2.last_cat = m.get("category") %}
+                        {% endif %}
+                        <div class="dork-item">
+                            <span class="dork-desc">{{ m.get("platform","?") }}</span>
+                            <a href="{{ m.get('url') }}" target="_blank" rel="noopener" class="dork-link">Search ↗</a>
+                        </div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {# ══ INVESTIGATION SUMMARY ══ #}
+                {% set psum = ph.get("summary") %}
+                {% if psum and psum.get("paragraphs") %}
+                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                        <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">🧠 Investigation Summary</span>
+                        <span class="tag-pill" style="{% if psum.get('confidence') == 'HIGH' %}color:var(--green);background:rgba(0,255,136,0.1){% elif psum.get('confidence') == 'MEDIUM' %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--muted);background:rgba(85,85,85,0.12){% endif %}">
+                            {{ psum.get("confidence") }} CONFIDENCE
+                        </span>
+                    </div>
+                    {% for p in psum.get("paragraphs",[]) %}
+                    <p style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:8px">{{ p }}</p>
+                    {% endfor %}
+                    {% if psum.get("key_findings") %}
+                    <div style="margin-top:8px">
+                        {% for f in psum.get("key_findings",[]) %}
+                        <div style="font-size:11px;color:var(--text);padding:2px 0">▸ {{ f }}</div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if psum.get("confidence_note") %}
+                    <div style="font-size:10px;color:var(--muted);margin-top:8px">{{ psum.get("confidence_note") }}</div>
+                    {% endif %}
+                </div>
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ IP + GEO ══ #}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">🌐</span><span class="card-title">IP &amp; Geolocation</span></div>
+            <div class="card-body">
+                <div class="ip-display">{{ result.get("ip","Not found") }}</div>
+                {% set geo = result.get("geo", {}) %}
+                {% if geo and geo is mapping and not geo.get("error") and geo.get("country") %}
+                <div class="geo-grid">
+                    <div><div class="geo-label">Country</div><div class="geo-value">{{ geo.get("country","—") }}</div></div>
+                    <div><div class="geo-label">City</div><div class="geo-value">{{ geo.get("city","—") }}</div></div>
+                    <div><div class="geo-label">ISP</div><div class="geo-value">{{ geo.get("isp","—") }}</div></div>
+                    <div><div class="geo-label">Region</div><div class="geo-value">{{ geo.get("regionName") or geo.get("region","—") }}</div></div>
+                    {% if geo.get("org") %}<div><div class="geo-label">Org</div><div class="geo-value">{{ geo.get("org") }}</div></div>{% endif %}
+                    {% if geo.get("lat") %}<div><div class="geo-label">Coordinates</div><div class="geo-value">{{ "%.4f"|format(geo.get("lat")) }}, {{ "%.4f"|format(geo.get("lon")) }}</div></div>{% endif %}
+                </div>
+                {% else %}<p class="no-data">No geolocation data available.</p>{% endif %}
+            </div>
+        </div>
+
+        {# ══ PORT SCAN ══ #}
+        {% set ps = result.get("port_scan") %}
+        {% if ps and ps is mapping and not ps.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🔌</span><span class="card-title">Port Scan</span>
+                {% set n_open = ps.get("open_ports", []) | list | length %}
+                {% set n_risky = ps.get("risky_ports", []) | list | length %}
+                <span class="card-count {% if n_risky > 0 %}red{% endif %}">{{ n_open }} open{% if n_risky > 0 %} · {{ n_risky }} risky{% endif %}</span>
+            </div>
+            <div class="card-body">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:12px;letter-spacing:1px">{{ ps.get("summary","") }}</div>
+                {% if ps.get("open_ports") and ps.get("open_ports") | list | length > 0 %}
+                    {% for p in ps.get("open_ports", []) %}
+                    <div class="port-item">
+                        <div><div class="port-number">{{ p.get("port") }}</div><div class="port-service">{{ p.get("service","unknown") }}</div></div>
+                        <div style="flex:1">
+                            {% if p.get("banner") %}<div class="port-banner">{{ p.get("banner","")[:80] }}</div>{% endif %}
+                            {% if p.get("risk") %}<div class="port-risk">⚠ {{ p.get("risk") }}</div>{% endif %}
+                        </div>
+                        {% if p.get("risk") %}<span class="port-risky-badge">RISKY</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                {% else %}<p class="no-data" style="color:var(--green)">✓ No open ports found in common scan.</p>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ DIRECTORY DISCOVERY ══ #}
+        {% set dd = result.get("directory_discovery") %}
+        {% if dd and dd is mapping and not dd.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">📂</span><span class="card-title">Directory Discovery</span>
+                {% set n_found = dd.get("found_count",0) %}{% set n_sens = dd.get("sensitive_count",0) %}
+                <span class="card-count {% if n_sens > 0 %}red{% elif n_found > 0 %}yellow{% endif %}">{{ n_found }} found{% if n_sens > 0 %} · {{ n_sens }} sensitive{% endif %}</span>
+            </div>
+            <div class="card-body">
+                <div style="font-size:10px;color:var(--muted);margin-bottom:10px">{{ dd.get("summary","") }}</div>
+                {% if dd.get("found") and dd.get("found") | list | length > 0 %}
+                <div class="dir-tabs">
+                    <button class="dir-tab active" onclick="switchDirTab(this,'dir-all')">All ({{ dd.get("found_count",0) }})</button>
+                    {% if dd.get("sensitive_count",0) > 0 %}<button class="dir-tab" onclick="switchDirTab(this,'dir-sensitive')">Sensitive ({{ dd.get("sensitive_count",0) }})</button>{% endif %}
+                </div>
+                <div id="dir-all" class="dir-panel active">
+                    {% for p in dd.get("found",[])[:30] %}
+                    <div class="dir-item">
+                        <span class="dir-path">{{ p.get("path","?") }}</span>
+                        <span class="dir-status status-{{ p.get('status_code',0) }}">{{ p.get("status_code","?") }}</span>
+                        {% if p.get("content_length") %}<span class="dir-size">{{ p.get("content_length",0) }}B</span>{% endif %}
+                        {% if p.get("sensitive") %}<span class="dir-sensitive-badge">⚠ SENSITIVE</span>{% endif %}
+                    </div>
+                    {% endfor %}
+                    {% if dd.get("found_count",0) > 30 %}<div style="font-size:10px;color:var(--muted);padding:8px 0">+{{ dd.get("found_count",0) - 30 }} more paths</div>{% endif %}
+                </div>
+                <div id="dir-sensitive" class="dir-panel">
+                    {% for p in dd.get("sensitive_found",[]) %}
+                    <div class="dir-item">
+                        <span class="dir-path">{{ p.get("path","?") }}</span>
+                        <span class="dir-status status-{{ p.get('status_code',0) }}">{{ p.get("status_code","?") }}</span>
+                        <span class="dir-sensitive-badge">⚠ SENSITIVE</span>
+                    </div>
+                    {% if p.get("reason") %}<div style="font-size:9px;color:var(--yellow);padding:2px 0 4px 0">{{ p.get("reason") }}</div>{% endif %}
+                    {% endfor %}
+                </div>
+                {% else %}<p class="no-data" style="color:var(--green)">✓ No accessible directories found.</p>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ HEADERS ANALYSIS ══ #}
+        {% set ha = result.get("headers_analysis") %}
+        {% if ha and ha is mapping and not ha.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🔎</span><span class="card-title">HTTP Headers</span>
+                <span class="card-count {% if ha.get('score',0) < 50 %}red{% elif ha.get('score',0) < 75 %}yellow{% endif %}">Grade {{ ha.get("grade","F") }} · {{ ha.get("score",0) }}/100</span>
+            </div>
+            <div class="card-body">
+                <div class="grade-badge grade-{{ ha.get('grade','F')[0] }}">{{ ha.get("grade","F") }}</div>
+                <div style="font-size:10px;color:var(--muted);margin-bottom:12px">
+                    {{ ha.get("summary","") }}
+                    {% if ha.get("https_enforced") %}<span class="dns-badge badge-ok" style="margin-left:6px">HTTPS ✓</span>
+                    {% else %}<span class="dns-badge badge-bad" style="margin-left:6px">No HTTPS</span>{% endif %}
+                </div>
+                {% if ha.get("security_headers") %}
+                <div class="dns-section-title">Present</div>
+                {% for h in ha.get("security_headers",[]) %}
+                <div class="header-check"><span class="h-present">✓</span><span class="h-name">{{ h.get("header","") }}</span><span class="h-sev sev-{{ h.get('severity','LOW') }}">{{ h.get("severity","") }}</span></div>
+                {% endfor %}{% endif %}
+                {% if ha.get("missing_headers") %}
+                <div class="dns-section-title" style="margin-top:12px">Missing</div>
+                {% for h in ha.get("missing_headers",[]) %}
+                <div class="header-check"><span class="h-missing">✗</span><span class="h-name">{{ h.get("header","") }}</span><span class="h-sev sev-{{ h.get('severity','LOW') }}">{{ h.get("severity","") }}</span></div>
+                {% endfor %}{% endif %}
+                {% if ha.get("info_leaks") %}
+                <div class="dns-section-title" style="margin-top:12px">Info Leakage</div>
+                {% for k, v in ha.get("info_leaks",{}).items() %}
+                <div class="info-leak-item"><span class="leak-key">{{ k }}</span><span class="leak-val">{{ v }}</span></div>
+                {% endfor %}{% endif %}
+                {% if ha.get("cookies_missing_flags") %}
+                <div class="dns-section-title" style="margin-top:12px">Cookie Issues</div>
+                {% for c in ha.get("cookies_missing_flags",[]) %}
+                <div style="font-size:10px;color:var(--yellow);padding:2px 0">⚠ {{ c.get("name","?") }}: {{ c.get("issues",[]) | join(", ") }}</div>
+                {% endfor %}{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ WHOIS ══ #}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">📋</span><span class="card-title">WHOIS</span></div>
+            <div class="card-body">
+                {% set whois = result.get("whois") %}
+                {% if whois and whois is mapping and not whois.get("error") %}
+                    {% for k, v in whois.items() %}{% if v and v != "—" %}
+                    <div class="kv-row"><span class="kv-key">{{ k | replace("_"," ") }}</span><span class="kv-val">{{ v }}</span></div>
+                    {% endif %}{% endfor %}
+                {% else %}<p class="no-data">No WHOIS data found.</p>{% endif %}
+            </div>
+        </div>
+
+        {# ══ BREACH CHECK ══ #}
+        {% set breach = result.get("breach", []) %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🔓</span><span class="card-title">Breach Check</span>
+                {% if breach and breach | list | length > 0 %}<span class="card-count red">{{ breach | list | length }}</span>{% endif %}
+            </div>
+            <div class="card-body">
+                {% if breach and breach is iterable and breach | list | length > 0 %}
+                    {% for b in breach %}{% if b is mapping %}
+                    <div class="breach-item {{ b.get('severity','high') }}">
+                        <div class="breach-name">{{ b.get("name","Unknown breach") }}</div>
+                        <div class="breach-meta">
+                            <span class="breach-tag breach-source-tag">{{ b.get("source","?") }}</span>
+                            <span class="breach-tag breach-sev-{{ b.get('severity','high') }}">{{ b.get("severity","high") | upper }}</span>
+                            {% if b.get("date") and b.get("date") != "Unknown" %}<span class="breach-date">{{ b.get("date") }}</span>{% endif %}
+                            {% if b.get("records") and b.get("records") > 0 %}<span class="breach-records">{{ "{:,}".format(b.get("records")) }} records</span>{% endif %}
+                        </div>
+                        {% if b.get("data_classes") and b.get("data_classes") | length > 0 %}<div class="breach-classes">{{ b.get("data_classes") | join(" · ") }}</div>{% endif %}
+                    </div>
+                    {% else %}<div class="breach-item high"><div class="breach-name">⚠ {{ b }}</div></div>{% endif %}{% endfor %}
+                {% else %}<p class="no-data" style="color:var(--green)">✓ No breaches found.</p>{% endif %}
+            </div>
+        </div>
+
+        {# ══ DNS ══ #}
+        {% set dns = result.get("dns") %}
+        {% if dns and dns is mapping and not dns.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🌍</span><span class="card-title">DNS Records</span>
+                {% if dns.get("wildcard") %}<span class="card-count yellow">Wildcard DNS</span>{% endif %}
+                {% if dns.get("dnssec") %}<span class="card-count">DNSSEC</span>{% endif %}
+            </div>
+            <div class="card-body">
+                {% if dns.get("a") %}<div class="dns-section"><div class="dns-section-title">A (IPv4)</div>{% for r in dns.get("a",[]) %}<div class="dns-record">{{ r }}</div>{% endfor %}</div>{% endif %}
+                {% if dns.get("aaaa") %}<div class="dns-section"><div class="dns-section-title">AAAA (IPv6)</div>{% for r in dns.get("aaaa",[]) %}<div class="dns-record">{{ r }}</div>{% endfor %}</div>{% endif %}
+                {% if dns.get("mx") %}<div class="dns-section"><div class="dns-section-title">MX (Mail)</div>{% for r in dns.get("mx",[]) %}<div class="dns-record"><span style="color:var(--muted)">{{ r.get("priority","") }}</span>&nbsp;{{ r.get("host","") if r is mapping else r }}</div>{% endfor %}</div>{% endif %}
+                {% if dns.get("ns") %}<div class="dns-section"><div class="dns-section-title">NS (Nameservers)</div>{% for r in dns.get("ns",[]) %}<div class="dns-record">{{ r }}</div>{% endfor %}</div>{% endif %}
+                {% set spf = dns.get("spf",{}) %}
+                {% if spf and spf.get("raw") %}
+                <div class="dns-section"><div class="dns-section-title">SPF</div>
+                <div class="dns-record" style="color:var(--muted);font-size:10px">{{ spf.get("raw","") }}</div>
+                <div style="margin-top:4px"><span class="dns-badge {% if spf.get('strict') %}badge-ok{% else %}badge-warn{% endif %}">all: {{ spf.get("all_policy","?") }}</span></div>
+                </div>{% endif %}
+                {% set dmarc = dns.get("dmarc",{}) %}
+                {% if dmarc and dmarc.get("raw") %}
+                <div class="dns-section"><div class="dns-section-title">DMARC</div>
+                <div class="kv-row"><span class="kv-key">Policy</span><span class="kv-val"><span class="dns-badge {% if dmarc.get('policy') == 'reject' %}badge-ok{% elif dmarc.get('policy') == 'quarantine' %}badge-warn{% else %}badge-bad{% endif %}">{{ dmarc.get("policy","none") }}</span></span></div>
+                {% if dmarc.get("rua") %}<div class="kv-row"><span class="kv-key">Reports to</span><span class="kv-val" style="font-size:10px">{{ dmarc.get("rua") }}</span></div>{% endif %}
+                </div>{% endif %}
+                {% if dns.get("zone_transfer") and dns.get("zone_transfer") | length > 0 %}
+                <div class="dns-section" style="border:1px solid var(--red);border-radius:4px;padding:8px;margin-top:8px">
+                    <div class="dns-section-title" style="color:var(--red)">⚠ ZONE TRANSFER EXPOSED</div>
+                    {% for r in dns.get("zone_transfer",[])[:5] %}<div class="dns-record" style="font-size:10px;color:var(--red)">{{ r }}</div>{% endfor %}
+                </div>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ SSL CERTIFICATE ══ #}
+        {% set ssl = result.get("ssl") %}
+        {% if ssl and ssl is mapping and not ssl.get("error") %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🔒</span><span class="card-title">SSL Certificate</span>
+                {% if ssl.get("expired") %}<span class="card-count red">EXPIRED</span>
+                {% elif ssl.get("expiring_soon") %}<span class="card-count yellow">EXPIRING SOON</span>
+                {% else %}<span class="card-count">Valid</span>{% endif %}
+            </div>
+            <div class="card-body">
+                {% if ssl.get("warnings") %}{% for w in ssl.get("warnings",[]) %}<div class="warn-flag">⚠ {{ w }}</div>{% endfor %}{% endif %}
+                <div class="kv-row"><span class="kv-key">Subject</span><span class="kv-val">{{ ssl.get("subject_cn","—") }}</span></div>
+                {% if ssl.get("subject_o") %}<div class="kv-row"><span class="kv-key">Org</span><span class="kv-val">{{ ssl.get("subject_o") }}</span></div>{% endif %}
+                <div class="kv-row"><span class="kv-key">Issuer</span><span class="kv-val">{{ ssl.get("issuer_cn","—") }}</span></div>
+                {% if ssl.get("issuer_o") %}<div class="kv-row"><span class="kv-key">Issued by</span><span class="kv-val">{{ ssl.get("issuer_o") }}</span></div>{% endif %}
+                <div class="kv-row"><span class="kv-key">Valid from</span><span class="kv-val">{{ ssl.get("not_before","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">Expires</span>
+                    <span class="kv-val {% if ssl.get('expired') %}ssl-expired{% elif ssl.get('expiring_soon') %}ssl-warn{% else %}ssl-valid{% endif %}">
+                        {{ ssl.get("not_after","—") }}{% if ssl.get("days_remaining") is not none %} ({{ ssl.get("days_remaining") }} days){% endif %}
+                    </span>
+                </div>
+                <div class="kv-row"><span class="kv-key">TLS Version</span><span class="kv-val">{{ ssl.get("tls_version","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">Cipher</span><span class="kv-val" style="font-size:10px">{{ ssl.get("cipher_suite","—") }}</span></div>
+                {% if ssl.get("self_signed") %}<div class="kv-row"><span class="kv-key">Self-signed</span><span class="kv-val" style="color:var(--red)">Yes</span></div>{% endif %}
+                {% if ssl.get("san_domains") and ssl.get("san_domains") | length > 0 %}
+                <div style="margin-top:10px"><div class="dns-section-title">SAN Domains ({{ ssl.get("san_domains") | length }})</div>
+                <div class="ssl-domains">{% for d in ssl.get("san_domains",[])[:12] %}<span class="ssl-domain">{{ d }}</span>{% endfor %}
+                {% if ssl.get("san_domains") | length > 12 %}<span class="ssl-domain" style="color:var(--muted)">+{{ ssl.get("san_domains") | length - 12 }} more</span>{% endif %}
+                </div></div>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ CERT HISTORY ══ #}
+        {% set ch = result.get("cert_history") %}
+        {% if ch and ch is mapping and not ch.get("error") and ch.get("total_certs",0) > 0 %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">📜</span><span class="card-title">Certificate History</span><span class="card-count">{{ ch.get("total_certs",0) }} certs</span></div>
+            <div class="card-body">
+                <div style="display:flex;gap:16px;flex-wrap:wrap;margin-bottom:12px">
+                    <div><div class="geo-label">Active</div><div style="color:var(--green);font-size:14px">{{ ch.get("active_count",0) }}</div></div>
+                    <div><div class="geo-label">Expired</div><div style="color:var(--red);font-size:14px">{{ ch.get("expired_count",0) }}</div></div>
+                    <div><div class="geo-label">Wildcards</div><div style="color:var(--yellow);font-size:14px">{{ ch.get("wildcard_certs",0) }}</div></div>
+                    <div><div class="geo-label">Earliest</div><div style="color:var(--text);font-size:12px">{{ ch.get("earliest_cert","—") }}</div></div>
+                </div>
+                {% if ch.get("issuers") %}
+                <div class="dns-section-title">Certificate Authorities</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px">{% for issuer in ch.get("issuers",[]) %}<span class="ssl-domain">{{ issuer }}</span>{% endfor %}</div>
+                {% endif %}
+                {% if ch.get("subdomains_discovered") and ch.get("subdomains_discovered") | length > 0 %}
+                <div class="dns-section-title">Subdomains via CT Logs ({{ ch.get("subdomains_discovered") | length }})</div>
+                {% for sub in ch.get("subdomains_discovered",[])[:10] %}<div class="dns-record">{{ sub }}</div>{% endfor %}
+                {% if ch.get("subdomains_discovered") | length > 10 %}<div style="font-size:10px;color:var(--muted);margin-top:4px">+{{ ch.get("subdomains_discovered") | length - 10 }} more</div>{% endif %}
+                {% endif %}
+                <div class="dns-section-title" style="margin-top:12px">Recent Certificates</div>
+                {% for cert in ch.get("certificates",[])[:5] %}
+                <div class="cert-item">
+                    <div class="cert-cn">{{ cert.get("common_name","?") }}</div>
+                    <div class="cert-meta">
+                        <span class="cert-issuer">{{ cert.get("issuer","?") }}</span>
+                        <span class="cert-dates">{{ cert.get("not_before","?") }} → {{ cert.get("not_after","?") }}</span>
+                        {% if cert.get("is_expired") %}<span class="cert-expired-badge">EXPIRED</span>{% endif %}
+                        {% if cert.get("is_wildcard") %}<span class="cert-wildcard-badge">WILDCARD</span>{% endif %}
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ TECH STACK ══ #}
+        {% set tech = result.get("tech") %}
+        {% if tech and tech is mapping and not tech.get("error") %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">⚙️</span><span class="card-title">Tech Stack</span>
+                {% if tech.get("status_code") %}<span class="card-count" style="color:var(--muted)">HTTP {{ tech.get("status_code") }}</span>{% endif %}
+            </div>
+            <div class="card-body">
+                {% for cat, cls in [("cms","tech-cms"),("server","tech-server"),("framework","tech-framework"),("cdn","tech-cdn"),("analytics","tech-analytics"),("js_libs","tech-js_libs"),("ecommerce","tech-ecommerce"),("hosting","tech-hosting"),("marketing","tech-cms"),("fonts","tech-server")] %}
+                {% set items = tech.get(cat, []) %}
+                {% if items and items | length > 0 %}
+                <div class="tech-section-lbl">{{ cat | replace("_"," ") | upper }}</div>
+                <div class="tech-tags">{% for item in items %}<span class="tech-tag {{ cls }}">{{ item }}</span>{% endfor %}</div>
+                {% endif %}{% endfor %}
+                {% set sec = tech.get("security_headers", {}) %}
+                {% if sec %}
+                <div class="tech-section-lbl" style="margin-top:14px">Security Headers</div>
+                <div class="sec-grid">
+                    <div class="sec-item"><div class="sec-dot {% if sec.get('hsts') %}sec-on{% else %}sec-off{% endif %}"></div> HSTS</div>
+                    <div class="sec-item"><div class="sec-dot {% if sec.get('csp') %}sec-on{% else %}sec-off{% endif %}"></div> CSP</div>
+                    <div class="sec-item"><div class="sec-dot {% if sec.get('x_frame') %}sec-on{% else %}sec-off{% endif %}"></div> X-Frame</div>
+                    <div class="sec-item"><div class="sec-dot {% if sec.get('x_content_type_options') %}sec-on{% else %}sec-off{% endif %}"></div> X-Content-Type</div>
+                </div>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ ROBOTS ══ #}
+        {% set rb = result.get("robots") %}
+        {% if rb and rb is mapping and not rb.get("error") %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">🤖</span><span class="card-title">Robots &amp; Paths</span>
+                {% set n_sens = rb.get("sensitive_paths",[]) | list | length %}
+                <span class="card-count {% if n_sens > 0 %}red{% endif %}">{{ rb.get("total_paths",0) }} paths{% if n_sens > 0 %} · {{ n_sens }} sensitive{% endif %}</span>
+            </div>
+            <div class="card-body">
+                {% if rb.get("files_found") %}<div class="dns-section-title">Files Found</div><div style="margin-bottom:10px">{% for f in rb.get("files_found",[]) %}<span class="file-badge">{{ f }}</span>{% endfor %}</div>{% endif %}
+                {% if rb.get("sensitive_paths") and rb.get("sensitive_paths") | list | length > 0 %}
+                <div class="dns-section-title" style="color:var(--red)">Sensitive Paths</div>
+                {% for p in rb.get("sensitive_paths",[])[:10] %}
+                <div class="path-item"><span class="path-dot sensitive">⚠</span>
+                    <div style="flex:1"><div class="path-str">{{ p.get("path","?") }}</div>{% if p.get("reason") %}<div class="path-reason">{{ p.get("reason") }}</div>{% endif %}</div>
+                    <span class="path-src">{{ p.get("source","?") }}</span>
+                </div>{% endfor %}{% endif %}
+                {% set non_sensitive = rb.get("discovered_paths",[]) | selectattr("sensitive","equalto",false) | list %}
+                {% if non_sensitive %}
+                <div class="dns-section-title" style="margin-top:10px">Other Paths</div>
+                {% for p in non_sensitive[:8] %}<div class="path-item"><span class="path-dot">▸</span><span class="path-str">{{ p.get("path","?") }}</span><span class="path-src">{{ p.get("source","?") }}</span></div>{% endfor %}{% endif %}
+                {% if rb.get("security_txt") %}<div class="dns-section-title" style="margin-top:10px">security.txt</div><div class="robots-raw">{{ rb.get("security_txt","") }}</div>{% endif %}
+                {% if not rb.get("discovered_paths") and not rb.get("files_found") %}<p class="no-data">No paths discovered.</p>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ EMPLOYEE INTEL ══ #}
+        {% set emp = result.get("employee") %}
+        {% if emp and emp is mapping and not emp.get("error") %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">🏢</span><span class="card-title">Employee Intel</span><span class="card-count">{{ emp.get("total_found",0) }} found</span></div>
+            <div class="card-body">
+                {% if emp.get("company_name") %}<div class="kv-row"><span class="kv-key">Company</span><span class="kv-val">{{ emp.get("company_name") }}</span></div>{% endif %}
+                {% if emp.get("github_org_members") and emp.get("github_org_members") | list | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">GitHub Org Members ({{ emp.get("github_org_members") | list | length }})</div>
+                {% for m in emp.get("github_org_members",[])[:8] %}
+                <div class="employee-item"><div class="emp-name">{{ m.get("github_username","?") }}</div>
+                <div class="emp-meta"><span class="emp-tag emp-gh">GitHub</span>{% if m.get("github_url") %}<a href="{{ m.get('github_url') }}" target="_blank" rel="noopener" style="font-size:10px;color:var(--blue)">{{ m.get("github_url") }}</a>{% endif %}</div></div>
+                {% endfor %}{% endif %}
+                {% if emp.get("email_patterns") %}
+                <div class="dns-section-title" style="margin-top:10px">Email Patterns</div>
+                {% for p in emp.get("email_patterns",[]) %}<div class="pattern-item"><span class="pat-fmt">{{ p.get("pattern","") }}</span><span class="pat-conf conf-{{ p.get('confidence','low') }}">{{ p.get("confidence","?") | upper }}</span></div>{% endfor %}{% endif %}
+                {% if emp.get("email_guesses") and emp.get("email_guesses") | list | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Email Guesses</div>
+                {% for eg in emp.get("email_guesses",[])[:8] %}<div class="email-guess-item">{{ eg }}</div>{% endfor %}{% endif %}
+                {% if emp.get("tech_emails") %}
+                <div class="dns-section-title" style="margin-top:10px">Generic Addresses</div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px">{% for te in emp.get("tech_emails",[])[:10] %}<span class="ssl-domain">{{ te }}</span>{% endfor %}</div>{% endif %}
+                {% if emp.get("social_profiles") %}
+                <div class="dns-section-title" style="margin-top:10px">Social Profiles</div>
+                {% for platform, url in emp.get("social_profiles",{}).items() %}
+                <div class="data-item"><span class="data-dot">▸</span><span class="data-val"><span style="color:var(--muted);min-width:80px;display:inline-block">{{ platform }}</span><a href="{{ url }}" target="_blank" rel="noopener" style="color:var(--blue);font-size:10px">{{ url }}</a></span></div>
+                {% endfor %}{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ SUBDOMAINS ══ #}
+        {% set subs = result.get("subs", []) %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">🔗</span><span class="card-title">Subdomains</span>{% if subs and subs | list | length > 0 %}<span class="card-count">{{ subs | list | length }}</span>{% endif %}</div>
+            <div class="card-body">
+                {% if subs and subs | list | length > 0 %}
+                {% for s in subs %}{% set host = s.get("host", s) if s is mapping else s %}{% set ip = s.get("ip","") if s is mapping else "" %}{% set stat = s.get("status",0) if s is mapping else 0 %}
+                <div class="data-item"><span class="data-dot">▸</span><span class="data-val">
+                    <a href="https://{{ host }}" target="_blank" rel="noopener" style="color:var(--text);text-decoration:none" onmouseover="this.style.color='var(--green)'" onmouseout="this.style.color='var(--text)'">{{ host }}</a>
+                    {% if ip %}<span style="color:var(--muted);font-size:10px;margin-left:8px">{{ ip }}</span>{% endif %}
+                    {% if stat %}<span style="color:var(--blue);font-size:10px;margin-left:6px">[{{ stat }}]</span>{% endif %}
+                </span></div>{% endfor %}
+                {% else %}<p class="no-data">No subdomains discovered.</p>{% endif %}
+            </div>
+        </div>
+
+        {# ══ THREAT MONITORING ══ #}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">🛡</span><span class="card-title">Threat Monitoring</span></div>
+            <div class="card-body">
+                {% set dark = result.get("dark", {}) %}
+                {% if dark and dark is mapping %}
+                    {% if dark.get("flagged") %}<div class="threat-flagged danger">⚠ TARGET FLAGGED</div>
+                    {% else %}<div class="threat-flagged safe">✓ No active threats detected</div>{% endif %}
+                    {% set score = dark.get("threat_score", 0) %}
+                    <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">THREAT SCORE: {{ score }}/100</div>
+                    <div class="threat-score-bar"><div class="threat-score-fill" style="width:{{ score }}%;background:{% if score > 60 %}var(--red){% elif score > 30 %}var(--yellow){% else %}var(--green){% endif %}"></div></div>
+                    {% set findings = dark.get("findings", []) %}
+                    {% if findings %}{% for f in findings[:5] %}
+                    <div class="finding-item">
+                        <div class="finding-source">{{ f.get("source","Unknown") if f is mapping else "Info" }}</div>
+                        <div style="color:var(--text);font-size:11px">
+                            {% if f is mapping %}{% if f.get("malware") %}Malware: {{ f.get("malware") }}{% endif %}{% if f.get("threat_type") %} · {{ f.get("threat_type") }}{% endif %}{% if f.get("detail") %} · {{ f.get("detail") }}{% endif %}
+                            {% else %}{{ f }}{% endif %}
+                        </div>
+                    </div>{% endfor %}
+                    {% else %}<p class="no-data">No threat intelligence findings.</p>{% endif %}
+                {% else %}<p class="no-data">Threat data unavailable.</p>{% endif %}
+            </div>
+        </div>
+
+        {# ══ EMAIL OSINT ══ #}
+        {% set eo = result.get("email_osint") %}
+        {% if eo and eo is mapping and not eo.get("error") %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">✉️</span><span class="card-title">Email Intelligence</span>
+                <span class="card-count {% if eo.get('score',100) < 50 %}red{% elif eo.get('score',100) < 75 %}yellow{% endif %}">Score {{ eo.get("score","?") }}/100</span>
+            </div>
+            <div class="card-body">
+                <div class="score-bar"><div class="score-fill" style="width:{{ eo.get('score',0) }}%;background:{% if eo.get('score',0) > 70 %}var(--green){% elif eo.get('score',0) > 40 %}var(--yellow){% else %}var(--red){% endif %}"></div></div>
+                <div class="kv-row"><span class="kv-key">Valid Format</span><span class="kv-val" style="color:{% if eo.get('valid_format') %}var(--green){% else %}var(--red){% endif %}">{{ "Yes" if eo.get("valid_format") else "No" }}</span></div>
+                <div class="kv-row"><span class="kv-key">Domain</span><span class="kv-val">{{ eo.get("domain","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">Disposable</span><span class="kv-val" style="color:{% if eo.get('disposable') %}var(--red){% else %}var(--green){% endif %}">{{ "Yes" if eo.get('disposable') else "No" }}</span></div>
+                <div class="kv-row"><span class="kv-key">Has MX</span><span class="kv-val" style="color:{% if eo.get('has_mx') %}var(--green){% else %}var(--red){% endif %}">{{ "Yes" if eo.get("has_mx") else "No" }}</span></div>
+                <div class="kv-row"><span class="kv-key">Reputation</span><span class="kv-val">{{ eo.get("reputation","unknown") | upper }}</span></div>
+                {% if eo.get("flags") %}<div style="margin-top:10px">{% for f in eo.get("flags",[]) %}<div class="email-flag">⚠ {{ f }}</div>{% endfor %}</div>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ WEB ARCHIVE ══ #}
+        {% set arc = result.get("archive") %}
+        {% if arc and arc is mapping and not arc.get("error") and arc.get("total_snapshots",0) > 0 %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">📦</span><span class="card-title">Web Archive</span><span class="card-count">{{ arc.get("total_snapshots",0) }} snapshots</span></div>
+            <div class="card-body">
+                <div class="kv-row"><span class="kv-key">First Seen</span><span class="kv-val">{{ arc.get("first_seen","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">Last Seen</span><span class="kv-val">{{ arc.get("last_seen","—") }}</span></div>
+                {% if arc.get("snapshots_by_year") %}
+                <div style="margin-top:10px"><div class="dns-section-title">Snapshots by Year</div>
+                <div class="archive-timeline">{% for yr, cnt in arc.get("snapshots_by_year",{}).items() %}<span class="archive-year">{{ yr }}: {{ cnt }}</span>{% endfor %}</div>
+                </div>{% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ LEAK CHECKER ══ #}
+        {% set leak = result.get("leak") %}
+        {% if leak and leak is mapping and not leak.get("error") and leak.get("total_leaks",0) > 0 %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">💧</span><span class="card-title">Leak Intelligence</span><span class="card-count red">{{ leak.get("total_leaks",0) }} found</span></div>
+            <div class="card-body">
+                {% for l in leak.get("leaks",[])[:8] %}
+                <div class="breach-item {{ l.get('severity','high') }}">
+                    <div class="breach-name">{{ l.get("breach_name","Unknown") }}</div>
+                    <div class="breach-meta">
+                        <span class="breach-tag breach-source-tag">{{ l.get("source","?") }}</span>
+                        <span class="breach-tag breach-sev-{{ l.get('severity','high') }}">{{ l.get("severity","?") | upper }}</span>
+                        {% if l.get("date") %}<span class="breach-date">{{ l.get("date") }}</span>{% endif %}
+                    </div>
+                </div>{% endfor %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ══ SCREENSHOT ══ #}
+        {% set shot = result.get("screenshot") %}
+        {% if shot and shot is mapping and not shot.get("error") and shot.get("screenshot_path") %}
+        <div class="card">
+            <div class="card-header"><span class="card-icon">📸</span><span class="card-title">Screenshot</span>{% if shot.get("status_code") %}<span class="card-count">HTTP {{ shot.get("status_code") }}</span>{% endif %}</div>
+            <div class="card-body">
+                {% if shot.get("title") %}<div class="kv-row"><span class="kv-key">Page Title</span><span class="kv-val">{{ shot.get("title") }}</span></div>{% endif %}
+                {% if shot.get("final_url") %}<div class="kv-row"><span class="kv-key">Final URL</span><span class="kv-val" style="font-size:10px">{{ shot.get("final_url") }}</span></div>{% endif %}
+                <div class="kv-row"><span class="kv-key">Captured</span><span class="kv-val">{{ shot.get("timestamp","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">File Size</span><span class="kv-val">{{ "%.1f"|format(shot.get("file_size_kb",0)) }} KB</span></div>
+                <div style="margin-top:10px;font-size:10px;color:var(--muted)">Evidence: {{ shot.get("screenshot_path","") }}</div>
+            </div>
+        </div>
+        {% endif %}
+
+    </div>{# end results-grid #}
+
+    {# ══ TIMELINE ══ #}
+    {% set tl = result.get("timeline") %}
+    {% if tl and tl is mapping and not tl.get("error") and tl.get("total_events",0) > 0 %}
+    <div class="card" style="margin-bottom:24px">
+        <div class="card-header"><span class="card-icon">📅</span><span class="card-title">Investigation Timeline</span><span class="card-count">{{ tl.get("total_events",0) }} events</span></div>
+        {% if tl.get("date_range") %}
+        <div style="padding:10px 20px;font-size:10px;color:var(--muted);letter-spacing:1px;border-bottom:1px solid var(--border)">
+            {{ tl.get("date_range",{}).get("earliest","?") }} → {{ tl.get("date_range",{}).get("latest","?") }}
+            &nbsp;·&nbsp;{% for cat, cnt in tl.get("categories",{}).items() %}<span style="margin-right:10px">{{ cat }}: {{ cnt }}</span>{% endfor %}
+        </div>{% endif %}
+        <div class="timeline-wrap">
+            {% for event in tl.get("events",[])[:30] %}
+            <div class="timeline-event">
+                <span class="tl-icon">{{ event.get("icon","📌") }}</span>
+                <span class="tl-date">{{ event.get("date","Unknown") }}</span>
+                <div class="tl-body">
+                    <div class="tl-type">{{ event.get("event_type","?") }}</div>
+                    {% if event.get("detail") %}<div class="tl-detail">{{ event.get("detail") }}</div>{% endif %}
+                    {% if event.get("source") %}<div class="tl-source">{{ event.get("source") }}</div>{% endif %}
+                </div>
+                <span class="tl-sev tl-sev-{{ event.get('severity','info') }}">{{ event.get("severity","info") | upper }}</span>
+            </div>{% endfor %}
+            {% if tl.get("total_events",0) > 30 %}
+            <div style="font-size:10px;color:var(--muted);text-align:center;padding:10px">+ {{ tl.get("total_events",0) - 30 }} more events</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+{# ══ AI INVESTIGATION SUMMARY ══ #}
+{% set ai = result.get("ai_summary") %}
+{% if ai and ai is mapping and not ai.get("error") %}
+<div class="card full-width">
+    <div class="card-header">
+        <span class="card-icon">🧠</span>
+        <span class="card-title">AI Investigation Summary</span>
+        <span class="card-count {% if ai.get('confidence') == 'HIGH' %}{% elif ai.get('confidence') == 'MEDIUM' %}yellow{% else %}{% endif %}">
+            {{ ai.get("confidence","LOW") }} Confidence
+        </span>
+    </div>
+    <div class="card-body">
+        {% for p in ai.get("paragraphs", []) %}
+        <p style="margin-bottom:10px;line-height:1.6;font-size:12px;color:var(--text)">{{ p }}</p>
+        {% endfor %}
+        {% if ai.get("confidence_note") %}
+        <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);font-size:10px;color:var(--muted)">
+            {{ ai.get("confidence_note") }}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
+
+{# ══ RELATED ENTITIES ══ #}
+{% set rel = result.get("related_entities") %}
+{% if rel and rel is mapping and not rel.get("error") %}
+<div class="card full-width">
+    <div class="card-header">
+        <span class="card-icon">🕸</span>
+        <span class="card-title">Related Entities</span>
+    </div>
+    <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+                <div class="dns-section-title" style="margin-bottom:8px">Possible Emails ({{ rel.get("emails",[])|length }})</div>
+                {% if rel.get("emails") %}
+                    {% for e in rel.get("emails",[]) %}<div class="email-guess-item">{{ e }}</div>{% endfor %}
+                {% else %}<p class="no-data">None found.</p>{% endif %}
+
+                <div class="dns-section-title" style="margin-bottom:8px;margin-top:14px">Possible Domains ({{ rel.get("domains",[])|length }})</div>
+                {% if rel.get("domains") %}
+                    {% for d in rel.get("domains",[]) %}<div class="dns-record">{{ d }}</div>{% endfor %}
+                {% else %}<p class="no-data">None found.</p>{% endif %}
+            </div>
+            <div>
+                <div class="dns-section-title" style="margin-bottom:8px">Possible Usernames ({{ rel.get("usernames",[])|length }})</div>
+                {% if rel.get("usernames") %}
+                    {% for u in rel.get("usernames",[])[:8] %}
+                    <div class="data-item"><span class="data-dot">▸</span><span class="data-val">
+                        {{ u.get("name","?") }}
+                        {% if u.get("url") %} — <a href="{{ u.get('url') }}" target="_blank" style="color:var(--blue);font-size:10px">↗</a>{% endif %}
+                    </span></div>
+                    {% endfor %}
+                {% else %}<p class="no-data">None found.</p>{% endif %}
+
+                <div class="dns-section-title" style="margin-bottom:8px;margin-top:14px">Previous Cases ({{ rel.get("previous_cases",[])|length }})</div>
+                {% if rel.get("previous_cases") %}
+                    {% for c in rel.get("previous_cases",[])[:5] %}
+                    <div class="data-item"><span class="data-dot">▸</span><span class="data-val">
+                        <a href="/cases/{{ c.get('id') }}" style="color:var(--blue)">#{{ c.get("id") }} — {{ c.get("title","Untitled") }}</a>
+                        <span style="color:var(--muted);font-size:10px;margin-left:6px">{{ c.get("status","") }}</span>
+                    </span></div>
+                    {% endfor %}
+                {% else %}<p class="no-data">None found.</p>{% endif %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ══ SOCIAL SEARCH SUGGESTIONS (labeled, never claimed as verified) ══ #}
+{% set sm = result.get("social_mentions") %}
+{% if sm and sm is mapping and not sm.get("error") %}
+<div class="card full-width">
+    <div class="card-header">
+        <span class="card-icon">🔗</span>
+        <span class="card-title">Social &amp; Public Mention Search Suggestions</span>
+    </div>
+    <div class="card-body">
+        <div class="api-error-note" style="margin-bottom:14px">
+            ℹ {{ sm.get("disclaimer","These are unverified search suggestions only.") }}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <div>
+                <div class="dns-section-title" style="margin-bottom:8px">Possible Public Profiles</div>
+                {% for s in sm.get("social_profiles",[]) %}
+                <div class="dork-item">
+                    <span class="dork-cat-badge dork-default">{{ s.get("label","search") }}</span>
+                    <span class="dork-desc">{{ s.get("platform","?") }}</span>
+                    <a href="{{ s.get('url') }}" target="_blank" rel="noopener" class="dork-link">Search ↗</a>
+                </div>
+                {% endfor %}
+            </div>
+            <div>
+                <div class="dns-section-title" style="margin-bottom:8px">Public Mentions</div>
+                {% for s in sm.get("public_mentions",[]) %}
+                <div class="dork-item">
+                    <span class="dork-cat-badge dork-mentions">{{ s.get("category","Mentions") }}</span>
+                    <span class="dork-desc">{{ s.get("platform","?") }}</span>
+                    <a href="{{ s.get('url') }}" target="_blank" rel="noopener" class="dork-link">Search ↗</a>
+                </div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+{# ══ IOC / EXPORT ══ #}
+{% set ioc = result.get("ioc") %}
+{% if ioc and ioc is mapping and not ioc.get("error") %}
+<div class="card full-width">
+    <div class="card-header">
+        <span class="card-icon">🎯</span>
+        <span class="card-title">IOC Enrichment</span>
+        <span class="card-count {% if ioc.get('risk_level') in ['High','Critical'] %}red{% elif ioc.get('risk_level') == 'Medium' %}yellow{% endif %}">
+            {{ ioc.get("risk_level","Low") }}
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="kv-row"><span class="kv-key">IOC Type</span><span class="kv-val">{{ ioc.get("ioc_type","unknown") }}</span></div>
+        <div class="kv-row"><span class="kv-key">Value</span><span class="kv-val">{{ ioc.get("value","—") }}</span></div>
+        <div class="kv-row"><span class="kv-key">Risk</span><span class="kv-val">{{ ioc.get("risk_score",0) }}/100 ({{ ioc.get("risk_level","Low") }})</span></div>
+        <div class="kv-row"><span class="kv-key">Confidence</span><span class="kv-val">{{ ioc.get("confidence","MINIMAL") }}</span></div>
+        {% if ioc.get("tags") %}
+        <div class="kv-row"><span class="kv-key">Tags</span><span class="kv-val">
+            {% for t in ioc.get("tags",[]) %}<span class="tech-tag tech-analytics" style="margin-right:4px">{{ t }}</span>{% endfor %}
+        </span></div>
+        {% endif %}
+        <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+            <a href="/export/ioc/stix" class="export-btn">⬇ Export STIX</a>
+            <a href="/export/ioc/misp" class="export-btn blue">⬇ Export MISP</a>
+        </div>
+    </div>
+</div>
+{% endif %}
+
+    {# ══ THREAT INTEL GRID: VT · AbuseIPDB · URLScan · OTX ══ #}
+    {% set vt    = result.get("virustotal") %}
+    {% set abuse = result.get("abuse") %}
+    {% set us    = result.get("urlscan") %}
+    {% set otx   = result.get("otx") %}
+
+    {% if vt or abuse or us or otx %}
+    <div class="intel-grid">
+
+        {# ── VirusTotal ── #}
+        {% if vt and vt is mapping %}
+        {% set vt_mal  = vt.get("malicious", 0) %}
+        {% set vt_sus  = vt.get("suspicious", 0) %}
+        {% set vt_ok   = vt.get("harmless", 0) %}
+        {% set vt_unk  = vt.get("undetected", 0) %}
+        {% set vt_tot  = vt.get("total_engines", 0) %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🦠</span>
+                <span class="card-title">VirusTotal</span>
+                {% if vt_mal > 0 %}
+                    <span class="card-count red">{{ vt_mal }} malicious</span>
+                {% elif vt_sus > 0 %}
+                    <span class="card-count yellow">{{ vt_sus }} suspicious</span>
+                {% elif vt.get("error") %}
+                    <span class="card-count" style="color:var(--muted)">No API Key</span>
+                {% else %}
+                    <span class="card-count">Clean</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if not vt.get("error") %}
+                <div class="vt-verdict">
+                    <div class="vt-big {% if vt_mal > 0 %}vt-danger{% elif vt_sus > 0 %}vt-warn{% else %}vt-clean{% endif %}">
+                        {% if vt_mal > 0 %}⚠{% elif vt_sus > 0 %}⚡{% else %}✓{% endif %}
+                    </div>
+                    <div>
+                        <div style="font-size:13px;color:{% if vt_mal > 0 %}var(--red){% elif vt_sus > 0 %}var(--yellow){% else %}var(--green){% endif %};letter-spacing:1px">
+                            {% if vt_mal > 0 %}MALICIOUS DETECTED{% elif vt_sus > 0 %}SUSPICIOUS{% else %}CLEAN{% endif %}
+                        </div>
+                        {% if vt_tot > 0 %}<div style="font-size:10px;color:var(--muted);margin-top:4px">Scanned by {{ vt_tot }} engines</div>{% endif %}
+                        {% if vt.get("reputation") is not none and vt.get("reputation") != 0 %}
+                        <div style="font-size:10px;color:{% if vt.get('reputation',0) < 0 %}var(--red){% else %}var(--green){% endif %};margin-top:2px">
+                            Community reputation: {{ vt.get("reputation") }}
+                        </div>{% endif %}
+                    </div>
+                </div>
+                <div class="vt-engine-row">
+                    <div class="vt-engine-box"><div class="vt-engine-num red">{{ vt_mal }}</div><div class="vt-engine-lbl">Malicious</div></div>
+                    <div class="vt-engine-box"><div class="vt-engine-num yellow">{{ vt_sus }}</div><div class="vt-engine-lbl">Suspicious</div></div>
+                    <div class="vt-engine-box"><div class="vt-engine-num green">{{ vt_ok }}</div><div class="vt-engine-lbl">Harmless</div></div>
+                    <div class="vt-engine-box"><div class="vt-engine-num muted">{{ vt_unk }}</div><div class="vt-engine-lbl">Undetected</div></div>
+                </div>
+                {% if vt.get("threat_names") and vt.get("threat_names") | length > 0 %}
+                <div class="dns-section-title" style="margin-bottom:6px">Threat Names</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+                    {% for tn in vt.get("threat_names",[])[:8] %}
+                    <span class="breach-tag breach-sev-high">{{ tn }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if vt.get("categories") and vt.get("categories").values() | list | length > 0 %}
+                <div class="dns-section-title" style="margin-bottom:6px">Categories</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+                    {% for vendor, cat in vt.get("categories",{}).items() %}
+                    <span class="tech-tag tech-analytics">{{ cat }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+                {% if vt.get("country") or vt.get("as_owner") %}
+                <div class="kv-row"><span class="kv-key">Country</span><span class="kv-val">{{ vt.get("country","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">AS Owner</span><span class="kv-val">{{ vt.get("as_owner","—") }}</span></div>
+                {% endif %}
+                {% if vt.get("last_analysis") %}<div class="kv-row"><span class="kv-key">Last Analysis</span><span class="kv-val">{{ vt.get("last_analysis") }}</span></div>{% endif %}
+                {% if vt.get("link") %}<div style="margin-top:10px"><a href="{{ vt.get('link') }}" target="_blank" rel="noopener" class="export-btn" style="font-size:10px;padding:6px 14px">View on VirusTotal ↗</a></div>{% endif %}
+                {% else %}
+                <div class="api-error-note">⚠ {{ vt.get("error","API key not configured") }}</div>
+                {% if vt.get("link") %}<div style="margin-top:10px"><a href="{{ vt.get('link') }}" target="_blank" rel="noopener" class="export-btn" style="font-size:10px;padding:6px 14px">View on VirusTotal ↗</a></div>{% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ── AbuseIPDB ── #}
+        {% if abuse and abuse is mapping %}
+        {% set ab_score = abuse.get("abuse_score", 0) %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🚨</span>
+                <span class="card-title">AbuseIPDB</span>
+                {% if abuse.get("error") %}
+                    <span class="card-count" style="color:var(--muted)">No API Key</span>
+                {% elif ab_score >= 50 %}
+                    <span class="card-count red">Score {{ ab_score }}</span>
+                {% elif ab_score > 0 %}
+                    <span class="card-count yellow">Score {{ ab_score }}</span>
+                {% else %}
+                    <span class="card-count">Clean</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if not abuse.get("error") %}
+                <div class="abuse-score-wrap">
+                    <div class="abuse-score-num" style="color:{% if ab_score >= 50 %}var(--red){% elif ab_score > 0 %}var(--yellow){% else %}var(--green){% endif %}">{{ ab_score }}</div>
+                    <div style="flex:1">
+                        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">ABUSE CONFIDENCE SCORE / 100</div>
+                        <div class="abuse-score-bar">
+                            <div class="abuse-score-fill" style="width:{{ ab_score }}%;background:{% if ab_score >= 50 %}var(--red){% elif ab_score > 0 %}var(--yellow){% else %}var(--green){% endif %}"></div>
+                        </div>
+                    </div>
+                </div>
+                {% if abuse.get("is_whitelisted") %}<div style="font-size:11px;color:var(--green);margin-bottom:10px">✓ Whitelisted</div>{% endif %}
+                {% if abuse.get("is_tor") %}<div style="font-size:11px;color:var(--red);margin-bottom:10px">⚠ Tor Exit Node</div>{% endif %}
+                <div class="kv-row"><span class="kv-key">IP</span><span class="kv-val" style="color:var(--blue)">{{ abuse.get("ip_address","—") }}</span></div>
+                <div class="kv-row"><span class="kv-key">Public</span><span class="kv-val">{{ "Yes" if abuse.get("is_public") else "No" }}</span></div>
+                {% if abuse.get("country_name") or abuse.get("country_code") %}<div class="kv-row"><span class="kv-key">Country</span><span class="kv-val">{{ abuse.get("country_name","") }} {{ abuse.get("country_code","") }}</span></div>{% endif %}
+                {% if abuse.get("isp") %}<div class="kv-row"><span class="kv-key">ISP</span><span class="kv-val">{{ abuse.get("isp") }}</span></div>{% endif %}
+                {% if abuse.get("domain") %}<div class="kv-row"><span class="kv-key">Domain</span><span class="kv-val">{{ abuse.get("domain") }}</span></div>{% endif %}
+                {% if abuse.get("usage_type") %}<div class="kv-row"><span class="kv-key">Usage Type</span><span class="kv-val">{{ abuse.get("usage_type") }}</span></div>{% endif %}
+                <div class="kv-row"><span class="kv-key">Total Reports</span><span class="kv-val" style="{% if abuse.get('total_reports',0) > 0 %}color:var(--red){% endif %}">{{ abuse.get("total_reports",0) }}</span></div>
+                <div class="kv-row"><span class="kv-key">Distinct Users</span><span class="kv-val">{{ abuse.get("distinct_users",0) }}</span></div>
+                {% if abuse.get("last_reported") %}<div class="kv-row"><span class="kv-key">Last Reported</span><span class="kv-val">{{ abuse.get("last_reported") }}</span></div>{% endif %}
+                {% if abuse.get("hostnames") and abuse.get("hostnames") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Hostnames</div>
+                {% for h in abuse.get("hostnames",[])[:5] %}<div class="dns-record">{{ h }}</div>{% endfor %}
+                {% endif %}
+                {% if abuse.get("link") %}<div style="margin-top:12px"><a href="{{ abuse.get('link') }}" target="_blank" rel="noopener" class="export-btn" style="font-size:10px;padding:6px 14px">View on AbuseIPDB ↗</a></div>{% endif %}
+                {% else %}
+                <div class="api-error-note">⚠ {{ abuse.get("error","API key not configured") }}</div>
+                {% if abuse.get("link") %}<div style="margin-top:10px"><a href="{{ abuse.get('link') }}" target="_blank" rel="noopener" class="export-btn" style="font-size:10px;padding:6px 14px">View on AbuseIPDB ↗</a></div>{% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ── URLScan ── #}
+        {% if us and us is mapping %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">🔍</span>
+                <span class="card-title">URLScan.io</span>
+                {% if us.get("error") %}
+                    <span class="card-count" style="color:var(--muted)">No API Key</span>
+                {% elif us.get("malicious") %}
+                    <span class="card-count red">Malicious</span>
+                {% elif us.get("overall_verdict") and us.get("overall_verdict") != "unknown" %}
+                    <span class="card-count">{{ us.get("overall_verdict") | capitalize }}</span>
+                {% else %}
+                    <span class="card-count">Scanned</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if not us.get("error") %}
+                <div class="urlscan-verdict {% if us.get('malicious') %}urlscan-malicious{% elif us.get('overall_verdict') == 'unknown' or not us.get('overall_verdict') %}urlscan-unknown{% else %}urlscan-clean{% endif %}">
+                    {% if us.get("malicious") %}⚠ MALICIOUS{% elif us.get("overall_verdict") %}{{ us.get("overall_verdict") | upper }}{% else %}UNKNOWN{% endif %}
+                </div>
+                {% if us.get("score") is not none and us.get("score") != 0 %}<div class="kv-row"><span class="kv-key">Score</span><span class="kv-val" style="color:{% if us.get('score',0) > 50 %}var(--red){% else %}var(--green){% endif %}">{{ us.get("score") }}/100</span></div>{% endif %}
+                {% if us.get("page_title") %}<div class="kv-row"><span class="kv-key">Page Title</span><span class="kv-val">{{ us.get("page_title") }}</span></div>{% endif %}
+                {% if us.get("page_ip") %}<div class="kv-row"><span class="kv-key">Page IP</span><span class="kv-val" style="color:var(--blue)">{{ us.get("page_ip") }}</span></div>{% endif %}
+                {% if us.get("page_country") %}<div class="kv-row"><span class="kv-key">Country</span><span class="kv-val">{{ us.get("page_country") }}</span></div>{% endif %}
+                {% if us.get("page_server") %}<div class="kv-row"><span class="kv-key">Server</span><span class="kv-val">{{ us.get("page_server") }}</span></div>{% endif %}
+                {% if us.get("page_mime") %}<div class="kv-row"><span class="kv-key">MIME</span><span class="kv-val">{{ us.get("page_mime") }}</span></div>{% endif %}
+                {% if us.get("page_status") and us.get("page_status") != 0 %}<div class="kv-row"><span class="kv-key">HTTP Status</span><span class="kv-val">{{ us.get("page_status") }}</span></div>{% endif %}
+                {% if us.get("submitted_at") %}<div class="kv-row"><span class="kv-key">Submitted</span><span class="kv-val">{{ us.get("submitted_at") }}</span></div>{% endif %}
+                {% if us.get("technologies") and us.get("technologies") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Technologies</div>
+                <div class="tech-tags" style="margin-bottom:8px">
+                    {% for t in us.get("technologies",[])[:10] %}<span class="tech-tag tech-framework">{{ t }}</span>{% endfor %}
+                </div>{% endif %}
+                {% if us.get("domains") and us.get("domains") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Contacted Domains ({{ us.get("domains") | length }})</div>
+                {% for d in us.get("domains",[])[:6] %}<div class="dns-record" style="color:var(--muted)">{{ d }}</div>{% endfor %}
+                {% if us.get("domains") | length > 6 %}<div style="font-size:10px;color:var(--muted);padding:4px 0">+{{ us.get("domains") | length - 6 }} more</div>{% endif %}
+                {% endif %}
+                {% if us.get("ips") and us.get("ips") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Contacted IPs ({{ us.get("ips") | length }})</div>
+                {% for ip in us.get("ips",[])[:6] %}<div class="dns-record" style="color:var(--blue)">{{ ip }}</div>{% endfor %}
+                {% endif %}
+                {% if us.get("screenshot_url") %}<div style="margin-top:12px"><a href="{{ us.get('screenshot_url') }}" target="_blank" rel="noopener" class="export-btn" style="font-size:10px;padding:6px 14px">Screenshot ↗</a></div>{% endif %}
+                {% if us.get("scan_url") or us.get("page_url") %}<div style="margin-top:8px"><a href="{{ us.get('scan_url') or us.get('page_url') }}" target="_blank" rel="noopener" class="export-btn blue" style="font-size:10px;padding:6px 14px">Full Report ↗</a></div>{% endif %}
+                {% else %}
+                <div class="api-error-note">⚠ {{ us.get("error","API key not configured or scan failed") }}</div>
+                {% if us.get("dom_url") or us.get("scan_url") %}<div style="margin-top:10px"><a href="{{ us.get('dom_url') or us.get('scan_url') }}" target="_blank" rel="noopener" class="export-btn blue" style="font-size:10px;padding:6px 14px">URLScan ↗</a></div>{% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        {# ── AlienVault OTX ── #}
+        {% if otx and otx is mapping %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-icon">⚡</span>
+                <span class="card-title">AlienVault OTX</span>
+                {% if otx.get("error") %}
+                    <span class="card-count" style="color:var(--muted)">No API Key</span>
+                {% elif otx.get("pulse_count", 0) > 0 %}
+                    <span class="card-count red">{{ otx.get("pulse_count") }} pulses</span>
+                {% else %}
+                    <span class="card-count">Clean</span>
+                {% endif %}
+            </div>
+            <div class="card-body">
+                {% if not otx.get("error") %}
+
+                {# Verdict banner #}
+                <div class="vt-verdict">
+                    <div class="vt-big {% if otx.get('pulse_count',0) > 0 %}vt-danger{% else %}vt-clean{% endif %}">
+                        {% if otx.get("pulse_count",0) > 0 %}⚡{% else %}✓{% endif %}
+                    </div>
+                    <div>
+                        <div style="font-size:13px;color:{% if otx.get('pulse_count',0) > 0 %}var(--red){% else %}var(--green){% endif %};letter-spacing:1px">
+                            {% if otx.get("pulse_count",0) > 0 %}THREAT INTELLIGENCE FOUND{% else %}NO THREATS FOUND{% endif %}
+                        </div>
+                        <div style="font-size:10px;color:var(--muted);margin-top:4px">
+                            {{ otx.get("pulse_count",0) }} threat pulse{% if otx.get("pulse_count",0) != 1 %}s{% endif %} · Score {{ otx.get("threat_score",0) }}/100
+                        </div>
+                    </div>
+                </div>
+
+                {# Threat score bar #}
+                {% set otx_score = otx.get("threat_score", 0) %}
+                <div class="score-bar" style="height:6px;margin-bottom:14px">
+                    <div class="score-fill" style="width:{{ otx_score }}%;background:{% if otx_score >= 60 %}var(--red){% elif otx_score >= 30 %}var(--yellow){% else %}var(--green){% endif %}"></div>
+                </div>
+
+                {# Geo / network #}
+                {% if otx.get("country") %}<div class="kv-row"><span class="kv-key">Country</span><span class="kv-val">{{ otx.get("country") }}</span></div>{% endif %}
+                {% if otx.get("city") %}<div class="kv-row"><span class="kv-key">City</span><span class="kv-val">{{ otx.get("city") }}</span></div>{% endif %}
+                {% if otx.get("asn") %}<div class="kv-row"><span class="kv-key">ASN</span><span class="kv-val" style="font-size:10px">{{ otx.get("asn") }}</span></div>{% endif %}
+                {% if otx.get("reputation") is not none and otx.get("reputation") != 0 %}
+                <div class="kv-row"><span class="kv-key">Reputation</span><span class="kv-val" style="color:{% if otx.get('reputation',0) < 0 %}var(--red){% else %}var(--green){% endif %}">{{ otx.get("reputation") }}</span></div>
+                {% endif %}
+
+                {# Malware families #}
+                {% if otx.get("malware_families") and otx.get("malware_families") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Malware Families</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+                    {% for mf in otx.get("malware_families",[]) %}
+                    <span class="breach-tag breach-sev-high">{{ mf }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {# Adversaries #}
+                {% if otx.get("adversaries") and otx.get("adversaries") | length > 0 %}
+                <div class="dns-section-title">Adversaries</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+                    {% for adv in otx.get("adversaries",[]) %}
+                    <span class="breach-tag breach-sev-medium">{{ adv }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {# Tags #}
+                {% if otx.get("tags") and otx.get("tags") | length > 0 %}
+                <div class="dns-section-title">Tags</div>
+                <div style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px">
+                    {% for tag in otx.get("tags",[])[:12] %}
+                    <span class="tech-tag tech-analytics">{{ tag }}</span>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {# Recent pulses #}
+                {% if otx.get("pulses") and otx.get("pulses") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Recent Threat Pulses</div>
+                {% for p in otx.get("pulses",[])[:4] %}
+                <div class="finding-item">
+                    <div class="finding-source">
+                        {{ p.get("author","?") }}
+                        {% if p.get("tlp") and p.get("tlp") != "white" %}
+                        <span class="breach-tag breach-sev-medium" style="margin-left:6px">TLP:{{ p.get("tlp","") | upper }}</span>
+                        {% endif %}
+                        {% if p.get("created") %}
+                        <span style="color:var(--muted);font-size:9px;margin-left:8px">{{ p.get("created","")[:10] }}</span>
+                        {% endif %}
+                    </div>
+                    <div style="color:var(--text);font-size:11px;margin-top:2px;font-weight:bold">{{ p.get("name","?") }}</div>
+                    {% if p.get("description") %}
+                    <div style="color:var(--muted);font-size:10px;margin-top:3px;line-height:1.5">{{ p.get("description","")[:180] }}{% if p.get("description","") | length > 180 %}…{% endif %}</div>
+                    {% endif %}
+                    {% if p.get("malware_families") and p.get("malware_families") | length > 0 %}
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">
+                        {% for mf in p.get("malware_families",[])[:4] %}
+                        <span class="breach-tag breach-sev-high" style="font-size:9px">{{ mf }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                    {% if p.get("tags") and p.get("tags") | length > 0 %}
+                    <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px">
+                        {% for t in p.get("tags",[])[:5] %}
+                        <span class="tech-tag tech-framework" style="font-size:9px;padding:1px 6px">{{ t }}</span>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+
+                {# IOCs #}
+                {% if otx.get("iocs") and otx.get("iocs") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Malware IOCs ({{ otx.get("iocs") | length }})</div>
+                {% for ioc in otx.get("iocs",[])[:5] %}
+                <div class="info-leak-item">
+                    <span class="leak-key" style="font-family:'Courier New',monospace;font-size:9px">{{ ioc.get("hash","?")[:32] }}…</span>
+                    {% if ioc.get("detections") %}<span class="leak-val">{{ ioc.get("detections") }} detections</span>{% endif %}
+                </div>
+                {% endfor %}
+                {% endif %}
+
+                {# Passive DNS from OTX #}
+                {% if otx.get("dns_records") and otx.get("dns_records") | length > 0 %}
+                <div class="dns-section-title" style="margin-top:10px">Passive DNS ({{ otx.get("dns_records") | length }})</div>
+                {% for d in otx.get("dns_records",[])[:6] %}
+                <div class="info-leak-item">
+                    <span class="leak-key">{{ d.get("hostname","?") }}</span>
+                    <span class="leak-val">{{ d.get("address","") }} <span style="color:var(--blue)">{{ d.get("record_type","") }}</span></span>
+                </div>
+                {% endfor %}
+                {% endif %}
+
+                {# Link out #}
+                {% if otx.get("link") %}
+                <div style="margin-top:12px">
+                    <a href="{{ otx.get('link') }}" target="_blank" rel="noopener" class="export-btn" style="font-size:10px;padding:6px 14px">View on OTX ↗</a>
+                </div>
+                {% endif %}
+
+                {% else %}
+                <div class="api-error-note">⚠ {{ otx.get("error","OTX_API_KEY not configured") }}</div>
+                {% if otx.get("link") %}
+                <div style="margin-top:10px">
+                    <a href="{{ otx.get('link') }}" target="_blank" rel="noopener" class="export-btn" style="font-size:10px;padding:6px 14px">View on OTX ↗</a>
+                </div>
+                {% endif %}
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+    </div>{# end intel-grid #}
+    {% endif %}
+
+    {# ══ GOOGLE DORKS ══ #}
+    {% set dorks = result.get("dorks") %}
+    {% set dork_list = dorks.get("dorks", dorks) if dorks is mapping else dorks %}
+    {% if dork_list %}
+    <div class="card" style="margin-bottom:24px">
+        <div class="card-header">
+            <span class="card-icon">🔎</span>
+            <span class="card-title">Google Dorks</span>
+            {% if dorks is iterable and dorks | list | length > 0 %}
+            <span class="card-count">{{ dorks | list | length }} queries</span>
+            {% endif %}
+        </div>
+        <div class="card-body">
+            {% if dorks is iterable and dorks is not string %}
+                {% set ns = namespace(last_cat="") %}
+                {% for d in dork_list %}
+                    {% if d is mapping %}
+                        {% set cat = d.get("category","Other") %}
+                        {% if cat != ns.last_cat %}
+                        <div class="dork-category">
+                            {% if "Sensitive" in cat %}🔐{% elif "Director" in cat %}📂{% elif "Mention" in cat %}🌐{% elif "Tech" in cat %}⚙️{% else %}🔎{% endif %}
+                            {{ cat }}
+                        </div>
+                        {% set ns.last_cat = cat %}
+                        {% endif %}
+                        <div class="dork-item">
+                            <span class="dork-cat-badge {% if 'Sensitive' in cat %}dork-sensitive{% elif 'Director' in cat %}dork-dirs{% elif 'Mention' in cat %}dork-mentions{% elif 'Tech' in cat %}dork-tech{% else %}dork-default{% endif %}">
+                                {{ cat | truncate(12, True, '') }}
+                            </span>
+                            <span class="dork-desc">{{ d.get("description","") }}</span>
+                            {% if d.get("url") %}<a href="{{ d.get('url') }}" target="_blank" rel="noopener" class="dork-link">Search ↗</a>{% endif %}
+                        </div>
+                    {% endif %}
+                {% endfor %}
+            {% else %}
+                <p class="no-data">Dork data not in expected format.</p>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
+    {# ══ GRAPH ══ #}
+    <div class="graph-card" id="graph-card">
+        <div class="graph-header"><span>🕸</span><span class="graph-title">Investigation Graph</span></div>
+        <svg id="graph"></svg>
+        <div class="legend">
+            <div class="legend-item"><div class="legend-dot" style="background:#00ff88"></div> Target</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#4488ff"></div> IP</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ffaa00"></div> Subdomain</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#cc44ff"></div> Username</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ff3c3c"></div> Breach</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ff6b35"></div> Threat/Port</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#00ccff"></div> Geo</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#00e5ff"></div> DNS</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#69ff47"></div> Tech/Cloud</div>
+            <div class="legend-item"><div class="legend-dot" style="background:#ffd740"></div> SSL/CA</div>
+        </div>
+    </div>
+
+    <script src="/static/graph.js"></script>
+
+    {% endif %}{# end if result and not result.get("task") #}
+
+</div>{# end .page #}
+
+<script>
+    document.getElementById('scanForm').addEventListener('submit', function() {
+        document.getElementById('loader').style.display = 'block';
+        document.getElementById('scanBtn').disabled = true;
+        document.getElementById('scanBtn').textContent = 'Scanning...';
+    });
+    var modal = document.getElementById('caseModal');
+    if (modal) {
+        modal.addEventListener('click', function(e) {
+            if (e.target === this) this.classList.remove('open');
+        });
+    }
+    function switchDirTab(btn, panelId) {
+        document.querySelectorAll('.dir-tab').forEach(function(t) { t.classList.remove('active'); });
+        document.querySelectorAll('.dir-panel').forEach(function(p) { p.classList.remove('active'); });
+        btn.classList.add('active');
+        var panel = document.getElementById(panelId);
+        if (panel) panel.classList.add('active');
+    }
+</script>
+</body>
+</html>

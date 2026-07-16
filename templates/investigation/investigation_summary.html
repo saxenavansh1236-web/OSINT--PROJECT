@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Investigation Summary — OSINT</title>
+<style>
+  :root{
+    --bg:#0a0d0a;
+    --panel:#0f140f;
+    --border:#1c2b1c;
+    --green:#3ddc84;
+    --green-dim:#1f6b3f;
+    --amber:#e8b339;
+    --red:#e8544a;
+    --text:#c8e6d0;
+    --text-dim:#5c7a66;
+    --mono: "JetBrains Mono","Fira Code",ui-monospace,SFMono-Regular,Consolas,monospace;
+  }
+  *{box-sizing:border-box;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--mono);
+    padding:32px;
+    line-height:1.5;
+  }
+  .topnav{
+    display:flex;
+    align-items:center;
+    gap:28px;
+    padding-bottom:18px;
+    margin-bottom:18px;
+    border-bottom:1px solid var(--border);
+    font-size:12px;
+    letter-spacing:0.06em;
+  }
+  .topnav .brand{ color:var(--green); font-weight:700; margin-right:12px; }
+  .topnav .navlinks{ display:flex; gap:22px; flex:1; }
+  .topnav .navlinks a{ color:var(--text-dim); text-decoration:none; }
+  .topnav .navlinks a:hover, .topnav .navlinks a.active{ color:var(--green); }
+  .topnav .whoami{ color:var(--text-dim); font-size:11px; }
+
+  .header{
+    display:flex;
+    justify-content:space-between;
+    align-items:baseline;
+    border-bottom:1px solid var(--border);
+    padding-bottom:16px;
+    margin-bottom:24px;
+  }
+  .header h1{
+    font-size:18px;
+    font-weight:600;
+    letter-spacing:0.04em;
+    color:var(--green);
+    margin:0;
+  }
+  .header h1::before{ content:"> "; color:var(--text-dim); }
+  .header .clock{ color:var(--text-dim); font-size:12px; }
+
+  .grid-stats{
+    display:grid;
+    grid-template-columns:repeat(4,1fr);
+    gap:16px;
+    margin-bottom:24px;
+  }
+  .stat-card{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:4px;
+    padding:16px 18px;
+    position:relative;
+    overflow:hidden;
+  }
+  .stat-card::before{
+    content:attr(data-tag);
+    position:absolute;
+    top:8px; right:10px;
+    font-size:10px;
+    color:var(--text-dim);
+    letter-spacing:0.08em;
+  }
+  .stat-label{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--text-dim);
+    margin-bottom:8px;
+  }
+  .stat-value{
+    font-size:32px;
+    font-weight:700;
+    color:var(--green);
+  }
+  .stat-sub{ font-size:11px; color:var(--text-dim); margin-top:4px; }
+
+  .row{
+    display:grid;
+    grid-template-columns:1.3fr 1fr;
+    gap:16px;
+    margin-bottom:16px;
+  }
+  .panel{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:4px;
+    padding:18px;
+  }
+  .panel-title{
+    font-size:12px;
+    color:var(--text-dim);
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    margin-bottom:14px;
+    display:flex;
+    justify-content:space-between;
+  }
+
+  /* Timeline bars */
+  .timeline{
+    display:flex;
+    align-items:flex-end;
+    gap:4px;
+    height:120px;
+  }
+  .tl-bar{
+    flex:1;
+    background:linear-gradient(to top, var(--green-dim), var(--green));
+    border-radius:2px 2px 0 0;
+    min-height:2px;
+    position:relative;
+  }
+  .tl-labels{
+    display:flex;
+    justify-content:space-between;
+    font-size:9px;
+    color:var(--text-dim);
+    margin-top:6px;
+  }
+
+  /* Risk breakdown */
+  .risk-row{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+    font-size:12px;
+  }
+  .risk-dot{ width:8px; height:8px; border-radius:50%; flex-shrink:0; }
+  .risk-bar-track{
+    flex:1;
+    height:6px;
+    background:#111a11;
+    border-radius:3px;
+    overflow:hidden;
+  }
+  .risk-bar-fill{ height:100%; border-radius:3px; }
+  .risk-count{ width:24px; text-align:right; color:var(--text-dim); }
+
+  .critical{ background:var(--red); }
+  .high{ background:#e88a3a; }
+  .medium{ background:var(--amber); }
+  .low{ background:var(--green); }
+  .unknown{ background:var(--text-dim); }
+
+  table{ width:100%; border-collapse:collapse; font-size:12px; }
+  th{
+    text-align:left;
+    color:var(--text-dim);
+    font-weight:500;
+    font-size:10px;
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+    border-bottom:1px solid var(--border);
+    padding:6px 8px;
+  }
+  td{ padding:8px; border-bottom:1px solid #131b13; }
+  .badge{
+    display:inline-block;
+    padding:2px 8px;
+    border-radius:3px;
+    font-size:10px;
+    text-transform:uppercase;
+  }
+  .badge.open{ background:#12331f; color:var(--green); }
+  .badge.closed{ background:#1c1c1c; color:var(--text-dim); }
+
+  .cursor{
+    display:inline-block;
+    width:7px; height:14px;
+    background:var(--green);
+    animation:blink 1s steps(1) infinite;
+    vertical-align:middle;
+    margin-left:6px;
+  }
+  @keyframes blink{ 50%{ opacity:0; } }
+
+  .empty-state{
+    color:var(--text-dim);
+    font-size:12px;
+    padding:20px 0;
+    text-align:center;
+  }
+</style>
+</head>
+<body>
+
+  <div class="topnav">
+    <div class="brand">⬡ OSINT</div>
+    <div class="navlinks">
+      <a href="{{ url_for('home') }}">SCANNER</a>
+      <a href="{{ url_for('history') }}">HISTORY</a>
+      <a href="{{ url_for('cases') }}" class="active">CASES</a>
+      <a href="{{ url_for('reports') }}">REPORTS</a>
+      <a href="{{ url_for('dashboard') }}">ADMIN</a>
+    </div>
+    <div class="whoami">{{ admin_user }}</div>
+  </div>
+
+  <div class="header">
+    <h1>investigation_summary<span class="cursor"></span></h1>
+    <div class="clock" id="clock"></div>
+  </div>
+
+  <div class="grid-stats">
+    <div class="stat-card" data-tag="cases">
+      <div class="stat-label">Total Cases</div>
+      <div class="stat-value">{{ stats.total_cases }}</div>
+      <div class="stat-sub">{{ stats.open_cases }} open · {{ stats.closed_cases }} closed</div>
+    </div>
+    <div class="stat-card" data-tag="risk">
+      <div class="stat-label">Avg Priority Score</div>
+      <div class="stat-value">{{ stats.avg_risk_score if stats.avg_risk_score is not none else "—" }}</div>
+      <div class="stat-sub">{{ stats.risk_counts.critical }} critical open · est. from priority</div>
+    </div>
+    <div class="stat-card" data-tag="evidence">
+      <div class="stat-label">Evidence Count</div>
+      <div class="stat-value">{{ stats.evidence_count }}</div>
+      <div class="stat-sub">across all cases</div>
+    </div>
+    <div class="stat-card" data-tag="status">
+      <div class="stat-label">Open Cases</div>
+      <div class="stat-value">{{ stats.open_cases }}</div>
+      <div class="stat-sub">requiring attention</div>
+    </div>
+  </div>
+
+  <div class="row">
+    <div class="panel">
+      <div class="panel-title"><span>Activity — last {{ timeline_labels|length }} days</span><span>cases / evidence</span></div>
+      <div class="timeline" id="timeline">
+        {% for point in timeline %}
+          {% set total = (point.cases + point.evidence) %}
+          <div class="tl-bar" style="height: {{ (total * 8) if total < 12 else 100 }}px;" title="{{ timeline_labels[loop.index0] }}: {{ point.cases }} cases, {{ point.evidence }} evidence"></div>
+        {% endfor %}
+      </div>
+      <div class="tl-labels">
+        <span>{{ timeline_labels[0] if timeline_labels else "" }}</span>
+        <span>{{ timeline_labels[-1] if timeline_labels else "" }}</span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title"><span>Risk Breakdown</span></div>
+      {% set total_risk = stats.risk_counts.critical + stats.risk_counts.high + stats.risk_counts.medium + stats.risk_counts.low + stats.risk_counts.unknown %}
+      {% for band in ["critical","high","medium","low","unknown"] %}
+        {% set count = stats.risk_counts[band] %}
+        {% set pct = ((count / total_risk) * 100) if total_risk else 0 %}
+        <div class="risk-row">
+          <div class="risk-dot {{ band }}"></div>
+          <div style="width:60px; text-transform:capitalize; color:var(--text-dim);">{{ band }}</div>
+          <div class="risk-bar-track"><div class="risk-bar-fill {{ band }}" style="width: {{ pct }}%;"></div></div>
+          <div class="risk-count">{{ count }}</div>
+        </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="panel-title"><span>Cases</span></div>
+    {% if stats.cases %}
+    <table>
+      <thead>
+        <tr><th>ID</th><th>Title</th><th>Target</th><th>Status</th><th>Priority</th><th>Opened</th></tr>
+      </thead>
+      <tbody>
+        {% for c in stats.cases %}
+        <tr>
+          <td><a href="{{ url_for('view_case', case_id=c.id) }}">#{{ c.id }}</a></td>
+          <td>{{ c.title }}</td>
+          <td>{{ c.target }}</td>
+          <td><span class="badge {{ c.status }}">{{ c.status }}</span></td>
+          <td style="text-transform:capitalize;">{{ c.priority }}</td>
+          <td>{{ c.created_at[:10] if c.created_at is string else (c.created_at.strftime("%Y-%m-%d") if c.created_at else "—") }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+      <div class="empty-state">No case records loaded yet — connect your Case model in dashboard.py to populate this table.</div>
+    {% endif %}
+  </div>
+
+<script>
+  function tick(){
+    const now = new Date();
+    document.getElementById('clock').textContent = now.toISOString().replace('T',' ').slice(0,19) + ' UTC';
+  }
+  tick();
+  setInterval(tick, 1000);
+</script>
+
+</body>
+</html>

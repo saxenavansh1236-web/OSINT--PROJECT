@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Case Correlation — OSINT Platform</title>
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        :root {
+            --bg:#0a0a0f; --surface:#0f0f1a; --surface2:#12121f; --border:#1a2a1a;
+            --green:#00ff88; --red:#ff3c3c; --yellow:#ffaa00; --blue:#4488ff;
+            --purple:#aa44ff; --muted:#555; --text:#ccc;
+        }
+        body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; padding:40px 24px; max-width:1000px; margin:0 auto; }
+        h1 { color:var(--green); font-size:20px; letter-spacing:2px; margin-bottom:6px; }
+        .sub { color:var(--muted); font-size:11px; margin-bottom:24px; }
+        .back { color:var(--blue); text-decoration:none; font-size:11px; }
+        .card { background:var(--surface); border:1px solid var(--border); border-radius:8px; margin-bottom:16px; overflow:hidden; }
+        .card-header { padding:14px 20px; background:var(--surface2); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:10px; }
+        .card-title { color:var(--text); font-size:13px; font-weight:bold; }
+        .score-badge { margin-left:auto; font-size:11px; padding:3px 10px; border-radius:20px; }
+        .score-high { background:rgba(255,60,60,0.15); color:var(--red); }
+        .score-med  { background:rgba(255,170,0,0.15); color:var(--yellow); }
+        .score-low  { background:rgba(0,255,136,0.1); color:var(--green); }
+        .card-body { padding:16px 20px; }
+        .indicator-row { display:flex; gap:10px; padding:6px 0; border-bottom:1px solid #0d0d18; font-size:12px; }
+        .indicator-row:last-child { border-bottom:none; }
+        .indicator-type { color:var(--muted); min-width:90px; text-transform:uppercase; font-size:10px; letter-spacing:1px; }
+        .indicator-values { color:var(--text); }
+        .no-data { color:var(--muted); font-size:12px; padding:20px; text-align:center; }
+        .api-error-note { font-size:11px; color:var(--muted); padding:10px 14px; background:rgba(85,85,85,0.1); border-radius:4px; border-left:2px solid var(--muted); }
+    </style>
+</head>
+<body>
+    <a href="{{ url_for('view_case', case_id=case.id if case is mapping else case.get('id')) }}" class="back">← Back to Case</a>
+    <h1>🔗 Cross-Case Correlation</h1>
+    <div class="sub">Case: {{ case.get('title', 'Untitled') if case is mapping else case.title }} · Target: {{ case.get('target','') if case is mapping else case.target }}</div>
+
+    {% if correlation.get("error") %}
+        <div class="api-error-note">⚠ {{ correlation.get("error") }}</div>
+    {% elif correlation.get("total_correlated_cases", 0) == 0 %}
+        <div class="card"><div class="card-body no-data">No indicator overlap found with any other case.</div></div>
+    {% else %}
+        <div class="sub">{{ correlation.get("total_correlated_cases", 0) }} related case(s) found, ranked by overlap strength.</div>
+        {% for o in correlation.get("overlaps", []) %}
+        <div class="card">
+            <div class="card-header">
+                <span class="card-title">Case #{{ o.get("case_id") }} — {{ o.get("case_title","Untitled") }}</span>
+                <span class="score-badge {% if o.get('overlap_score',0) >= 50 %}score-high{% elif o.get('overlap_score',0) >= 20 %}score-med{% else %}score-low{% endif %}">
+                    Overlap: {{ o.get("overlap_score", 0) }}
+                </span>
+            </div>
+            <div class="card-body">
+                {% for ind in o.get("shared_indicators", []) %}
+                <div class="indicator-row">
+                    <span class="indicator-type">{{ ind.get("type","?") }}</span>
+                    <span class="indicator-values">{{ ind.get("values", []) | join(", ") }}</span>
+                </div>
+                {% endfor %}
+                <div style="margin-top:12px">
+                    <a href="/cases/{{ o.get('case_id') }}" style="color:var(--blue);font-size:11px">View Case #{{ o.get("case_id") }} →</a>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+    {% endif %}
+</body>
+</html>

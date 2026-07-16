@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error {{ code }} — OSINT Platform</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            background: #0a0a0f;
+            color: #00ff88;
+            font-family: 'Courier New', monospace;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .error-box {
+            text-align: center;
+            padding: 48px;
+        }
+
+        .error-code {
+            font-size: 120px;
+            font-weight: bold;
+            color: #00ff88;
+            line-height: 1;
+            text-shadow: 0 0 40px rgba(0,255,136,0.3);
+            letter-spacing: -4px;
+        }
+
+        .error-label {
+            font-size: 12px;
+            letter-spacing: 6px;
+            color: #555;
+            text-transform: uppercase;
+            margin-top: 12px;
+            margin-bottom: 24px;
+        }
+
+        .divider {
+            width: 60px;
+            height: 1px;
+            background: #1a2a1a;
+            margin: 0 auto 24px;
+        }
+
+        .error-message {
+            font-size: 14px;
+            color: #aaa;
+            letter-spacing: 1px;
+            margin-bottom: 40px;
+        }
+
+        /* Per-code accent colors */
+        {% if code == 500 %}
+        .error-code { color: #ff3c3c; text-shadow: 0 0 40px rgba(255,60,60,0.3); }
+        {% elif code == 429 %}
+        .error-code { color: #ffaa00; text-shadow: 0 0 40px rgba(255,170,0,0.3); }
+        {% elif code == 400 %}
+        .error-code { color: #ff6b00; text-shadow: 0 0 40px rgba(255,107,0,0.3); }
+        {% endif %}
+
+        .btn-home {
+            display: inline-block;
+            padding: 12px 32px;
+            border: 1px solid #00ff88;
+            border-radius: 4px;
+            color: #00ff88;
+            text-decoration: none;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+            transition: background 0.2s, color 0.2s;
+        }
+
+        .btn-home:hover {
+            background: #00ff88;
+            color: #0a0a0f;
+        }
+
+        .hint {
+            margin-top: 48px;
+            font-size: 11px;
+            color: #333;
+            letter-spacing: 1px;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-box">
+
+        <div class="error-code">{{ code }}</div>
+
+        <div class="error-label">
+            {% if code == 400 %}Bad Request
+            {% elif code == 404 %}Not Found
+            {% elif code == 429 %}Too Many Requests
+            {% elif code == 500 %}Internal Server Error
+            {% else %}Error
+            {% endif %}
+        </div>
+
+        <div class="divider"></div>
+
+        <p class="error-message">
+            {{ message if message else "Something went wrong." }}
+        </p>
+
+        <a href="/" class="btn-home">Go Home</a>
+
+        <p class="hint">
+            {% if code == 404 %}
+                The page you're looking for doesn't exist.
+            {% elif code == 429 %}
+                Slow down — you're being rate limited. Try again in a minute.
+            {% elif code == 500 %}
+                Server error. Check the terminal for details.
+            {% elif code == 400 %}
+                Bad request. Try running a scan first.
+            {% endif %}
+        </p>
+
+    </div>
+</body>
+</html>

@@ -1,0 +1,101 @@
+{% extends "admin_dashboard.html" %}
+{% block title %}Case #{{ case.id }} — {{ case.title }}{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <p class="subtle mono">CASE #{{ case.id }}</p>
+    <h1>{{ case.title }}</h1>
+    {% if case.tags %}
+      <div class="tag-row">
+        {% for t in case.tags %}<span class="tag">{{ t }}</span>{% endfor %}
+      </div>
+    {% endif %}
+  </div>
+  <a href="{{ url_for('cases') }}" class="btn btn-ghost">← Back to Cases</a>
+</div>
+
+<div class="case-grid">
+
+  <div class="case-main">
+
+    <div class="card">
+      <h3>Target</h3>
+      <p class="mono">{{ case.target }}</p>
+      <h3>Description</h3>
+      <p>{{ case.description or "No description provided." }}</p>
+      <div class="meta-row">
+        <span>Created by <strong>{{ case.created_by or 'unknown' }}</strong> on {{ case.created_at or '—' }}</span>
+        <span>Last updated {{ case.updated_at or '—' }}</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Investigator Notes ({{ notes|length }})</h3>
+      <form method="post" action="{{ url_for('add_case_note', case_id=case.id) }}" class="inline-form-stacked">
+        <textarea name="content" rows="3" placeholder="Add a finding, lead, or update..." required></textarea>
+        <button type="submit" class="btn btn-secondary">Add Note</button>
+      </form>
+
+      <ul class="note-list">
+        {% for n in notes %}
+        <li class="note-item">
+          <div class="note-meta"><strong>{{ n.author or 'unknown' }}</strong> · {{ n.created_at or '—' }}</div>
+          <div class="note-content">{{ n.content }}</div>
+        </li>
+        {% else %}
+        <li class="empty-row">No notes yet.</li>
+        {% endfor %}
+      </ul>
+    </div>
+
+  </div>
+
+  <div class="case-sidebar">
+
+    <div class="card">
+      <h3>Status</h3>
+      <form method="post" action="{{ url_for('update_case_route', case_id=case.id) }}">
+        <input type="hidden" name="priority" value="{{ case.priority }}">
+        <input type="hidden" name="description" value="{{ case.description }}">
+        <select name="status" onchange="this.form.submit()">
+          {% for s in ["open", "in_progress", "on_hold", "closed", "archived"] %}
+            <option value="{{ s }}" {% if s == case.status %}selected{% endif %}>{{ s.replace('_',' ')|title }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <span class="badge badge-status-{{ case.status }} badge-lg">{{ case.status.replace('_',' ')|title }}</span>
+    </div>
+
+    <div class="card">
+      <h3>Priority</h3>
+      <form method="post" action="{{ url_for('update_case_route', case_id=case.id) }}">
+        <input type="hidden" name="status" value="{{ case.status }}">
+        <input type="hidden" name="description" value="{{ case.description }}">
+        <select name="priority" onchange="this.form.submit()">
+          {% for p in ["low", "medium", "high", "critical"] %}
+            <option value="{{ p }}" {% if p == case.priority %}selected{% endif %}>{{ p|title }}</option>
+          {% endfor %}
+        </select>
+      </form>
+      <span class="badge badge-priority-{{ case.priority }} badge-lg">{{ case.priority|title }}</span>
+    </div>
+
+    <div class="card">
+      <h3>Export</h3>
+      <a href="{{ url_for('export_case_route', case_id=case.id, format='json') }}" class="btn btn-secondary" style="display:block;text-align:center;margin-bottom:8px;">Export JSON</a>
+      <a href="{{ url_for('export_case_route', case_id=case.id, format='text') }}" class="btn btn-secondary" style="display:block;text-align:center;">Export Text Report</a>
+    </div>
+
+    <div class="card danger-zone">
+      <h3>Danger Zone</h3>
+      <form method="post" action="{{ url_for('delete_case_route', case_id=case.id) }}"
+            onsubmit="return confirm('Delete case #{{ case.id }}? This cannot be undone.');">
+        <button type="submit" class="btn btn-danger">Delete Case</button>
+      </form>
+    </div>
+
+  </div>
+
+</div>
+{% endblock %}

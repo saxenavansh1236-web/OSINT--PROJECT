@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Management — OSINT</title>
+    <style>
+        *, *::before, *::after { margin:0; padding:0; box-sizing:border-box; }
+        :root { --bg:#0a0a0f; --surface:#0f0f1a; --border:#1a2a1a; --green:#00ff88; --red:#ff3c3c; --yellow:#ffaa00; --blue:#4488ff; --muted:#555; --text:#ccc; }
+        body { background:var(--bg); color:var(--text); font-family:'Courier New',monospace; min-height:100vh; }
+        nav { background:var(--surface); border-bottom:1px solid var(--border); padding:0 32px; display:flex; align-items:center; justify-content:space-between; height:56px; position:sticky; top:0; z-index:100; }
+        .brand { color:var(--green); font-size:15px; letter-spacing:3px; font-weight:bold; }
+        .nav-links { display:flex; gap:4px; }
+        .nav-links a { color:var(--muted); text-decoration:none; font-size:11px; letter-spacing:1px; padding:6px 14px; border-radius:4px; transition:all 0.2s; text-transform:uppercase; }
+        .nav-links a:hover, .nav-links a.active { color:var(--green); background:rgba(0,255,136,0.07); }
+        .nav-right { display:flex; align-items:center; gap:16px; font-size:11px; }
+        .role-badge { padding:3px 10px; border-radius:20px; font-size:10px; letter-spacing:1px; text-transform:uppercase; background:rgba(0,255,136,0.1); color:var(--green); border:1px solid var(--border); }
+        .logout { color:var(--red); text-decoration:none; font-size:11px; }
+        .container { max-width:1000px; margin:0 auto; padding:32px 24px; }
+        .flash { padding:10px 16px; border-radius:4px; font-size:12px; margin-bottom:20px; letter-spacing:1px; }
+        .flash.success { background:rgba(0,255,136,0.08); border:1px solid var(--green); color:var(--green); }
+        .flash.error   { background:rgba(255,60,60,0.08); border:1px solid var(--red); color:var(--red); }
+        .section-title { color:var(--green); font-size:11px; letter-spacing:3px; text-transform:uppercase; margin-bottom:16px; margin-top:32px; }
+
+        /* ADD USER FORM */
+        .add-form { background:var(--surface); border:1px solid var(--border); border-radius:8px; padding:24px; margin-bottom:32px; display:grid; grid-template-columns:1fr 1fr 160px auto; gap:12px; align-items:end; }
+        label { display:block; font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-bottom:6px; }
+        input, select { width:100%; background:var(--bg); border:1px solid var(--border); border-radius:4px; color:var(--green); font-family:'Courier New',monospace; font-size:13px; padding:10px 12px; outline:none; transition:border-color 0.2s; }
+        input:focus, select:focus { border-color:var(--green); }
+        select option { background:var(--bg); }
+
+        /* TABLE */
+        .table-wrap { background:var(--surface); border:1px solid var(--border); border-radius:8px; overflow:hidden; }
+        table { width:100%; border-collapse:collapse; font-size:12px; }
+        th { text-align:left; padding:12px 20px; color:var(--muted); font-size:10px; letter-spacing:2px; text-transform:uppercase; border-bottom:1px solid var(--border); background:var(--bg); }
+        td { padding:12px 20px; border-bottom:1px solid #0d0d18; }
+        tr:last-child td { border-bottom:none; }
+        tr:hover td { background:#111122; }
+
+        .role-admin   { color:var(--red); }
+        .role-analyst { color:var(--yellow); }
+        .role-viewer  { color:var(--blue); }
+
+        .btn { padding:7px 14px; border-radius:4px; font-family:'Courier New',monospace; font-size:10px; letter-spacing:1px; cursor:pointer; border:none; text-transform:uppercase; display:inline-block; }
+        .btn-danger  { background:rgba(255,60,60,0.1); color:var(--red); border:1px solid var(--red); }
+        .btn-outline { background:transparent; color:var(--green); border:1px solid var(--green); }
+        .btn-danger:hover { background:rgba(255,60,60,0.2); }
+        .btn-outline:hover { background:rgba(0,255,136,0.07); }
+
+        .role-form { display:flex; gap:8px; align-items:center; }
+        .role-form select { width:110px; padding:6px 8px; font-size:11px; }
+    </style>
+</head>
+<body>
+
+<nav>
+    <span class="brand">⬡ OSINT</span>
+    <div class="nav-links">
+        <a href="/dashboard">Dashboard</a>
+        <a href="/admin/users" class="active">Users</a>
+        <a href="/admin/audit">Audit Logs</a>
+        <a href="/">Scanner</a>
+    </div>
+    <div class="nav-right">
+        <span>{{ admin_user }}</span>
+        <span class="role-badge">{{ admin_role }}</span>
+        <a href="/logout" class="logout">Logout</a>
+    </div>
+</nav>
+
+<div class="container">
+
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% for cat, msg in messages %}
+            <div class="flash {{ cat }}">{{ msg }}</div>
+        {% endfor %}
+    {% endwith %}
+
+    <!-- ADD USER -->
+    <p class="section-title">Add New User</p>
+    <form method="POST" action="/admin/users/add" class="add-form">
+        <div>
+            <label>Username</label>
+            <input type="text" name="username" placeholder="username" required>
+        </div>
+        <div>
+            <label>Password</label>
+            <input type="password" name="password" placeholder="password" required>
+        </div>
+        <div>
+            <label>Role</label>
+            <select name="role">
+                <option value="viewer">Viewer</option>
+                <option value="analyst">Analyst</option>
+                <option value="admin">Admin</option>
+            </select>
+        </div>
+        <div>
+            <label>&nbsp;</label>
+            <button class="btn btn-outline" style="width:100%">Add User</button>
+        </div>
+    </form>
+
+    <!-- USER TABLE -->
+    <p class="section-title">All Users</p>
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Created</th>
+                    <th>Change Role</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for user in users %}
+                <tr>
+                    <td style="color:var(--muted)">{{ user.id }}</td>
+                    <td style="color:var(--green)">{{ user.username }}</td>
+                    <td>
+                        <span class="role-{{ user.role }}">{{ user.role }}</span>
+                    </td>
+                    <td style="color:var(--muted)">{{ user.created_at.strftime('%Y-%m-%d') if user.created_at else '—' }}</td>
+                    <td>
+                        <form method="POST" action="/admin/users/role/{{ user.id }}" class="role-form">
+                            <select name="role">
+                                <option value="viewer"  {% if user.role=='viewer'  %}selected{% endif %}>viewer</option>
+                                <option value="analyst" {% if user.role=='analyst' %}selected{% endif %}>analyst</option>
+                                <option value="admin"   {% if user.role=='admin'   %}selected{% endif %}>admin</option>
+                            </select>
+                            <button class="btn btn-outline">Save</button>
+                        </form>
+                    </td>
+                    <td>
+                        {% if user.username != admin_user %}
+                        <form method="POST" action="/admin/users/delete/{{ user.id }}"
+                              onsubmit="return confirm('Delete user {{ user.username }}?')">
+                            <button class="btn btn-danger">Delete</button>
+                        </form>
+                        {% else %}
+                        <span style="color:var(--muted);font-size:10px">current</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+</div>
+</body>
+</html>
