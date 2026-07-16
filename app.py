@@ -417,6 +417,41 @@ app.register_blueprint(auth_bp)
 if _HAS_INVESTIGATION_SUMMARY:
     app.register_blueprint(investigation_dashboard_bp)
 
+# ──────────────────────────────────────────────────────────────────────────
+# FIX: create the database tables at import time, not just under
+# `if __name__ == "__main__":`. Production servers (gunicorn, Render, etc.)
+# import this module as `app:app` and never execute the __main__ block, so
+# db.create_all() previously never ran in production — causing
+# "sqlalchemy.exc.OperationalError: no such table: user" on /register,
+# /login, and anywhere else the User/History/AuditLog tables are queried.
+#
+# db.create_all() is idempotent (it only creates tables that don't already
+# exist), so it's always safe to call here on every startup.
+# ──────────────────────────────────────────────────────────────────────────
+with app.app_context():
+    db.create_all()
+
+_SCHEDULER_STARTED = False
+
+
+def _start_scheduler_once():
+    """Start the background scheduler exactly once, regardless of whether
+    the app is launched via `python app.py` or a WSGI server like gunicorn."""
+    global _SCHEDULER_STARTED
+    if _SCHEDULER_STARTED:
+        return
+    if _HAS_SCHEDULED:
+        try:
+            init_scheduler(app, monitored_scan(run_osint_scan))
+            _SCHEDULER_STARTED = True
+        except NameError:
+            # run_osint_scan not yet defined at this point in the module —
+            # scheduler will be started later from __main__ instead.
+            pass
+        except Exception as e:
+            print(f"[Scheduler Init Error] {e}")
+
+
 UPLOAD_FOLDER = "uploads"
 ALLOWED_IMAGE_EXTENSIONS = {"jpg", "jpeg", "png", "gif", "webp", "tiff", "bmp", "heic"}
 MAX_IMAGE_SIZE_MB = 15
@@ -1039,6 +1074,11 @@ def run_osint_scan(target: str) -> dict:
             result["ioc"] = {"error": str(e)}
 
     return result
+
+
+# Now that run_osint_scan exists, it's safe to (re)try starting the
+# scheduler if it wasn't already started above.
+_start_scheduler_once()
 
 
 # ==========================
@@ -2638,10 +2678,11 @@ def image_osint():
 
 
 if __name__ == "__main__":
-    with app.app_context():
-        db.create_all()
-        if _HAS_SCHEDULED:
-            init_scheduler(app, monitored_scan(run_osint_scan))
+    # Tables are already created above at import time; this block now only
+    # needs to ensure the scheduler is running (in case run_osint_scan
+    # wasn't defined yet when _start_scheduler_once() first ran — it always
+    # is by this point) and to start Flask's dev server for local runs.
+    _start_scheduler_once()
 
     app.run(
         debug=os.environ.get("FLASK_DEBUG", "false").lower() == "true",
