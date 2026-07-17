@@ -4,9 +4,7 @@ subdomains.py — Fast concurrent subdomain enumerator.
 Features
 --------
 * 120-entry curated wordlist (vs 40 before)
-* Concurrent DNS with configurable workers (default 10 — lowered from 40
-  to reduce peak memory usage on memory-constrained hosts like Render's
-  free tier, which was causing worker OOM kills)
+* Concurrent DNS with configurable workers (default 40)
 * Optional HTTPS probe to confirm live web services
 * Returns SubdomainResult objects with IP + status
 """
@@ -86,13 +84,7 @@ WORDLIST: list[str] = [
 
 DNS_TIMEOUT = 3   # seconds per lookup
 HTTP_TIMEOUT = 4  # seconds per HTTP probe
-
-# Lowered from 40 -> 10. This is I/O-bound work (DNS + HTTP), so fewer
-# concurrent threads only adds a modest amount of wall-clock time to the
-# scan, but meaningfully reduces peak memory (each thread carries its own
-# stack + socket/SSL overhead). This was contributing to OOM worker kills
-# on memory-constrained hosts (e.g. Render free tier's 512MB).
-MAX_WORKERS  = 10
+MAX_WORKERS  = 40
 
 
 # ─────────────────────────────────────────────
