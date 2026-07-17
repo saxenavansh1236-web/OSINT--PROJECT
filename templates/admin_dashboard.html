@@ -16,6 +16,7 @@
             --red:      #ff3c3c;
             --yellow:   #ffaa00;
             --blue:     #4488ff;
+            --pink:     #ff6b9d;
             --muted:    #555;
             --text:     #ccc;
         }
@@ -71,11 +72,13 @@
         .stat-card.red::before    { background:var(--red); }
         .stat-card.yellow::before { background:var(--yellow); }
         .stat-card.blue::before   { background:var(--blue); }
+        .stat-card.pink::before   { background:var(--pink); }
         .stat-number { font-size:42px; font-weight:bold; line-height:1; }
         .stat-card.green  .stat-number { color:var(--green); }
         .stat-card.red    .stat-number { color:var(--red); }
         .stat-card.yellow .stat-number { color:var(--yellow); }
         .stat-card.blue   .stat-number { color:var(--blue); }
+        .stat-card.pink   .stat-number { color:var(--pink); }
         .stat-label { font-size:10px; color:var(--muted); letter-spacing:2px; text-transform:uppercase; margin-top:8px; }
 
         /* SECTION HEADER */
@@ -177,6 +180,15 @@
         <div class="stat-card blue">
             <div class="stat-number">{{ total_users }}</div>
             <div class="stat-label">Total Users</div>
+        </div>
+        <!-- FIX: total_image_scans was already computed in app.py's dashboard()
+             route but was never rendered anywhere in this template. Image
+             OSINT scans are logged to AuditLog (not History), so without
+             this card their activity was invisible on the dashboard even
+             though it showed correctly on /history. -->
+        <div class="stat-card pink">
+            <div class="stat-number">{{ total_image_scans }}</div>
+            <div class="stat-label">Image Scans</div>
         </div>
     </div>
 
@@ -319,6 +331,45 @@
                     {% endfor %}
                 {% else %}
                     <tr><td colspan="7" class="empty">No scans yet.</td></tr>
+                {% endif %}
+            </tbody>
+        </table>
+    </div>
+
+    <!-- RECENT IMAGE OSINT SCANS TABLE -->
+    <!-- FIX: Image OSINT scans are logged to AuditLog (action="image_osint_scan"),
+         not to the History table, so they never appeared here before. app.py's
+         dashboard() route now builds `recent_image_scans` from AuditLog and
+         passes it in, matching the same pattern already used on /history. -->
+    <div class="section-header">
+        <span class="section-title">Recent Image OSINT Scans</span>
+        <div class="actions-bar">
+            <a href="/history" class="btn btn-outline btn-sm">View All in History →</a>
+        </div>
+    </div>
+
+    <div class="table-wrap">
+        <table>
+            <thead>
+                <tr>
+                    <th>Filename</th>
+                    <th>Scanned At</th>
+                    <th>Type</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% if recent_image_scans %}
+                    {% for img in recent_image_scans %}
+                    <tr>
+                        <td class="target-cell">{{ img.filename }}</td>
+                        <td style="color:var(--muted); font-size:11px;">
+                            {{ img.scanned_at.strftime('%Y-%m-%d %H:%M') if img.scanned_at and img.scanned_at.strftime else (img.scanned_at or '—') }}
+                        </td>
+                        <td style="color:var(--muted); font-size:10px; letter-spacing:1px;">image</td>
+                    </tr>
+                    {% endfor %}
+                {% else %}
+                    <tr><td colspan="3" class="empty">No image scans yet.</td></tr>
                 {% endif %}
             </tbody>
         </table>
