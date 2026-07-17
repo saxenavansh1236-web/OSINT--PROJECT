@@ -83,6 +83,7 @@ A self-hosted Open Source Intelligence platform built with Flask. Scan domains, 
 
 ## What's New
 
+- **Image OSINT scans now visible on the Admin Dashboard** — image scans are audit-logged (`action="image_osint_scan"` in `AuditLog`) rather than written to the `History` table, since a file upload is a different kind of event than a target lookup. Previously the dashboard's `dashboard()` route computed `total_image_scans` but never rendered it in `admin_dashboard.html`, so image OSINT activity was invisible there even though it always showed correctly on `/history`. The dashboard now includes a dedicated **Image Scans** stat card and a **Recent Image OSINT Scans** table, both sourced from the same `AuditLog` query `/history` already used — no schema changes required.
 - **Public Account System** — the Scanner (`/`) and Image OSINT (`/image-osint`) are now gated behind a lightweight, self-serve user login (`/register`, `/login`, `/logout-user`). This is separate from the admin session used for the dashboard/cases/reports. Every scan is now tied to a session that must first authenticate as a registered user.
 - CAPTCHA now also protects registration and login, not just the admin panel and scan form.
 - Every account action (register, login, failed login, logout) is written to the audit log.
@@ -205,17 +206,19 @@ A consolidated route combining forensic metadata extraction with a full image an
 ---
 
 ### Admin Panel
-- **Dashboard** — scan stats, 7-day activity chart, top targets, live security-event counters
-- **History** — full scan log with CSV export (bulk or single row)
+- **Dashboard** — scan stats, 7-day activity chart, top targets, live security-event counters, a dedicated **Image Scans** stat card, and a **Recent Image OSINT Scans** table (sourced from `AuditLog`, separate from the `History`-backed scan stats and chart)
+- **History** — full scan log with CSV export (bulk or single row), plus a separate Image OSINT Scans section (also sourced from `AuditLog`)
 - **Reports** — historical analytics (7d/30d/90d), exportable as JSON or PDF
 - **Case Management** — create/track investigation cases with notes, priorities, tags, an Evidence Center (files + notes + snapshots), a dedicated Timeline view, and a per-case Intelligence panel
 - **Scheduled Scans** — recurring target monitoring via APScheduler, with manual "run now" and enable/disable toggles
 - **Alert Engine** — SMTP email alerts on breach detection or target change, plus webhook support and a test-alert button
 - **User Management** — role-based access control for admin accounts (Admin / Analyst / Viewer)
-- **Audit Logs** — every admin action *and* every public account action (register/login/logout, failed logins) logged with actor, action, detail, and IP
+- **Audit Logs** — every admin action *and* every public account action (register/login/logout, failed logins, image OSINT scans) logged with actor, action, detail, and IP
 - **Target Change Monitor** — detects and flags changes between scans of a monitored target
 
 > **Navigation note:** the public-facing pages (`/`, `/image-osint`) only show **Scanner** and **Image OSINT** in the nav bar, and both now require a logged-in public account (`/login`, `/register`). History, Cases, Reports, Scheduled Monitor, and Admin links live exclusively inside the authenticated admin panel (`/dashboard`, `/admin/*`) to avoid exposing internal tooling to unauthenticated visitors. Public accounts and admin accounts are entirely separate — a public login does not grant `/admin` access.
+
+> **Data model note:** target scans (domain/IP/email/phone/username, run from `/`) are written to the `History` table and drive the dashboard's Total Scans / 7-Day Chart / Top Targets stats. Image OSINT scans (run from `/image-osint`) are a structurally different event — a file upload rather than a target lookup — and are written to `AuditLog` with `action="image_osint_scan"` instead. Both `/history` and `/dashboard` read from both tables to present a complete picture, but the two scan types are never merged into a single `History` row.
 
 #### Investigation Intelligence (per-case, `/cases/<id>/intelligence`)
 - **Confidence Score** — how much corroborated, verifiable data exists on the target (WHOIS, DNS, SSL, geo resolution, multi-source corroboration, note activity)
@@ -710,6 +713,7 @@ OSINT-Project/
 - Several Image Intelligence cards (AI captioning, AI-generated detection, logo/vehicle/plate detection, landmark detection) require an external model or API key; without one they transparently report "unavailable" rather than a fabricated result.
 - Reverse Image Search and Social/Public Mention links are **search suggestions only** — the platform never claims a confirmed match without independent verification.
 - Public self-registration is open by default — anyone who can reach `/register` can create a scanner account. Disable or gate it in front of your reverse proxy if that's not desired.
+- Image OSINT scans and target scans are tracked in two separate tables (`AuditLog` vs. `History`) by design, since they represent different kinds of events. Both `/history` and `/dashboard` merge them for display, but any custom reporting or export you build on top of the database directly needs to query both tables to get a full picture of scan activity.
 
 ---
 
