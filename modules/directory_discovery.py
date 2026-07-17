@@ -51,14 +51,6 @@ SENSITIVE_KEYWORDS = [
     "wp-admin", "wp-login", "cpanel",
 ]
 
-# Lowered from 20 -> 8. This is I/O-bound work (each thread makes a full
-# HTTP request via `requests`), so fewer concurrent threads only adds a
-# modest amount of wall-clock time to the scan, but meaningfully reduces
-# peak memory (each thread carries its own connection/SSL overhead). This
-# was contributing to OOM worker kills on memory-constrained hosts (e.g.
-# Render free tier's 512MB).
-DEFAULT_THREADS = 8
-
 
 @dataclass
 class DiscoveredPath:
@@ -151,7 +143,7 @@ def _probe_path(base_url: str, path: str, timeout: int = 5) -> Optional[Discover
         return None
 
 
-def discover(target: str, threads: int = DEFAULT_THREADS, custom_paths: List[str] = None, timeout: int = 5) -> DirectoryResult:
+def discover(target: str, threads: int = 20, custom_paths: List[str] = None, timeout: int = 5) -> DirectoryResult:
     """
     Discover public directories and files on a target domain.
 
