@@ -48,6 +48,14 @@ TOP_100_PORTS = sorted(list(set(COMMON_PORTS + [
     10000, 10443, 11211, 15672, 61616,
 ])))
 
+# Lowered from 80 -> 20. This is I/O-bound work (raw socket connects +
+# banner grabs), so fewer concurrent threads only adds a modest amount of
+# wall-clock time to the scan, but meaningfully reduces peak memory (each
+# thread carries its own stack + socket overhead). This was contributing
+# to OOM worker kills on memory-constrained hosts (e.g. Render free tier's
+# 512MB).
+DEFAULT_MAX_WORKERS = 20
+
 
 @dataclass
 class PortResult:
@@ -122,7 +130,7 @@ def scan(
     target: str,
     mode: str = "common",          # "common" | "top100" | "full" | custom list
     ports: Optional[list] = None,
-    max_workers: int = 80,
+    max_workers: int = DEFAULT_MAX_WORKERS,
     timeout: float = 1.2,
     grab_banners: bool = True,
 ) -> PortScanResult:
