@@ -1617,12 +1617,48 @@ def dashboard():
         failed_login_count  = 0
         success_login_count = 0
 
+    # ── Recent Image OSINT scans (logged to AuditLog, not History) ───────
+    # Image OSINT scans never write to the History table, so they were
+    # previously invisible everywhere on this dashboard except the
+    # `total_image_scans` count above (which itself wasn't being rendered
+    # in the template). This pulls the most recent image scans from
+    # AuditLog so the dashboard can show them explicitly.
+    recent_image_scans = []
+    try:
+        img_logs = (
+            AuditLog.query.filter_by(action="image_osint_scan")
+            .order_by(AuditLog.id.desc())
+            .limit(10)
+            .all()
+        )
+        for log in img_logs:
+            detail = log.detail or ""
+            filename = detail.replace("file=", "").strip() if "file=" in detail else (detail or "unknown")
+
+            # AuditLog's timestamp column name can vary by schema — try the
+            # common options in order rather than assuming one exact name.
+            scanned_at = None
+            for attr in ("timestamp", "created_at", "logged_at", "created", "ts"):
+                if hasattr(log, attr):
+                    scanned_at = getattr(log, attr)
+                    if scanned_at:
+                        break
+
+            recent_image_scans.append({
+                "filename": filename or "unknown",
+                "scanned_at": scanned_at,
+            })
+    except Exception as e:
+        print(f"[Dashboard Image Scans Error] {e}")
+        recent_image_scans = []
+
     return render_template(
         "admin_dashboard.html",
         total_scans=total_scans,
         flagged_count=flagged_count,
         total_users=total_users,
         total_image_scans=total_image_scans,
+        recent_image_scans=recent_image_scans,
         recent_count=recent_count,
         latest=latest,
         admin_user=session.get("admin_user", "admin"),
