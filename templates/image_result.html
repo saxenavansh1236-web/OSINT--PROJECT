@@ -309,12 +309,49 @@
     </div>
 
 {# ============================================================================
-   IMAGE INTELLIGENCE SECTION — everything below is one single
-   {% if image_intel %} ... {% endif %} block wrapping ONE results-grid div.
-   Do not close either of them early — all sub-cards live inside.
+   IMAGE INTELLIGENCE SECTION — one single {% if image_intel %} block
+   wrapping ONE results-grid div. AI Summary card comes first inside the
+   grid so investigators see the consolidated view before the raw cards.
    ============================================================================ #}
 {% if image_intel %}
 <div class="results-grid" style="margin-top:24px">
+
+    {# ══ AI INVESTIGATION SUMMARY (one-click, shown first) ══ #}
+    {% set aisum = image_intel.get("ai_summary") %}
+    {% if aisum and aisum.get("available") %}
+    <div class="card full-width" style="border-color:var(--green)">
+        <div class="card-header">
+            <span class="card-icon">🧠</span><span class="card-title">AI Investigation Summary</span>
+            <span class="card-count {% if aisum.get('risk_level') == 'HIGH' %}red{% elif aisum.get('risk_level') == 'MEDIUM' %}yellow{% endif %}">
+                {{ aisum.get("risk_level","LOW") }} RISK
+            </span>
+        </div>
+        <div class="card-body">
+            <p style="font-size:13px;color:var(--green);margin-bottom:14px;font-weight:bold">{{ aisum.get("headline","") }}</p>
+
+            <div class="data-item"><span class="data-dot">📷</span><span class="data-val">{{ aisum.get("camera_line","") }}</span></div>
+            <div class="data-item"><span class="data-dot">📍</span><span class="data-val">{{ aisum.get("gps_line","") }}</span></div>
+            <div class="data-item"><span class="data-dot">🕵️</span><span class="data-val">{{ aisum.get("hidden_metadata_line","") }}</span></div>
+            <div class="data-item"><span class="data-dot">📦</span><span class="data-val">{{ aisum.get("objects_line","") }}</span></div>
+            <div class="data-item"><span class="data-dot">🔤</span><span class="data-val">{{ aisum.get("ocr_line","") }}</span></div>
+            <div class="data-item"><span class="data-dot">🩻</span><span class="data-val">{{ aisum.get("forgery_line","") }}</span></div>
+
+            <div class="dns-section-title" style="margin-top:14px">Recommendations</div>
+            {% for r in aisum.get("recommendations",[]) %}
+            <div class="rec-item"><span class="rec-arrow">→</span><span>{{ r }}</span></div>
+            {% endfor %}
+
+            <div class="api-error-note" style="margin-top:12px">
+                ℹ Confidence: <b>{{ aisum.get("confidence","LOW") }}</b> — {{ aisum.get("confidence_note","") }}
+            </div>
+        </div>
+    </div>
+    {% elif aisum %}
+    <div class="card full-width">
+        <div class="card-header"><span class="card-icon">🧠</span><span class="card-title">AI Investigation Summary</span></div>
+        <div class="card-body"><div class="api-error-note">⚠ {{ aisum.get("error","AI summary unavailable.") }}</div></div>
+    </div>
+    {% endif %}
 
     {# ══ IMAGE HASHES ══ #}
     {% set h = image_intel.get("hashes") %}
@@ -519,7 +556,11 @@
             <div class="kv-row"><span class="kv-key">Coordinates</span><span class="kv-val">{{ gps.get("latitude") }}, {{ gps.get("longitude") }}</span></div>
             {% if gps.get("altitude") %}<div class="kv-row"><span class="kv-key">Altitude</span><span class="kv-val">{{ gps.get("altitude") }} m</span></div>{% endif %}
             {% if gps.get("direction") %}<div class="kv-row"><span class="kv-key">Direction</span><span class="kv-val">{{ gps.get("direction") }}°</span></div>{% endif %}
-            <a href="{{ gps.get('maps_url') }}" target="_blank" rel="noopener" class="btn btn-outline" style="margin-top:8px;display:inline-block;padding:8px 16px;font-size:10px">Open in Google Maps ↗</a>
+            <div class="actions" style="margin-top:8px">
+                <a href="{{ gps.get('maps_url') }}" target="_blank" rel="noopener" class="btn btn-outline" style="padding:8px 16px;font-size:10px">Google Maps ↗</a>
+                <a href="https://www.google.com/maps/@{{ gps.get('latitude') }},{{ gps.get('longitude') }},18z/data=!3m1!1e3" target="_blank" rel="noopener" class="btn btn-outline" style="padding:8px 16px;font-size:10px">Satellite View ↗</a>
+                <a href="https://www.openstreetmap.org/?mlat={{ gps.get('latitude') }}&mlon={{ gps.get('longitude') }}#map=17/{{ gps.get('latitude') }}/{{ gps.get('longitude') }}" target="_blank" rel="noopener" class="btn btn-outline" style="padding:8px 16px;font-size:10px">OpenStreetMap ↗</a>
+            </div>
             <div id="gps-map" style="height:250px;border-radius:6px;margin-top:12px;border:1px solid var(--border)"></div>
         </div>
     </div>
@@ -531,6 +572,89 @@
         </div>
     </div>
     {% endif %}
+
+    {# ══ TIMELINE ══ #}
+    {% set tl = image_intel.get("timeline") %}
+    {% if tl and tl.get("available") %}
+    <div class="card">
+        <div class="card-header"><span class="card-icon">🕒</span><span class="card-title">Timeline</span></div>
+        <div class="card-body">
+            {% for ev in tl.get("events",[]) %}
+            <div class="kv-row">
+                <span class="kv-key">{{ ev.get("icon","") }} {{ ev.get("label","") }}</span>
+                <span class="kv-val">{{ ev.get("timestamp","—") }}</span>
+            </div>
+            {% if ev.get("note") %}<div class="warn-flag" style="margin-bottom:6px">⚠ {{ ev.get("note") }}</div>{% endif %}
+            {% endfor %}
+
+            {% if tl.get("timezone_offset") %}
+            <div class="kv-row"><span class="kv-key">Timezone Offset</span><span class="kv-val">{{ tl.get("timezone_offset") }}</span></div>
+            {% endif %}
+
+            {% if tl.get("age_human") %}
+            <div class="kv-row"><span class="kv-key">Age of Image</span><span class="kv-val">{{ tl.get("age_human") }}</span></div>
+            {% endif %}
+
+            <div class="kv-row"><span class="kv-key">Shared</span><span class="kv-val" style="color:var(--muted)">Not tracked</span></div>
+            <div class="api-error-note" style="margin-top:8px">ℹ {{ tl.get("shared_note","") }}</div>
+        </div>
+    </div>
+    {% elif tl %}
+    <div class="card">
+        <div class="card-header"><span class="card-icon">🕒</span><span class="card-title">Timeline</span></div>
+        <div class="card-body"><div class="api-error-note">⚠ {{ tl.get("error","No timeline data available.") }}</div></div>
+    </div>
+    {% endif %}
+
+    {# ══ CAMERA SENSOR FINGERPRINTING ══ #}
+{% set cf = image_intel.get("camera_fingerprint") %}
+{% if cf %}
+<div class="card full-width">
+    <div class="card-header">
+        <span class="card-icon">🔬</span><span class="card-title">Camera Sensor Fingerprinting</span>
+        {% if cf.get("available") %}
+        <span class="card-count {% if cf.get('device_consistency') == 'INCONSISTENT' %}red{% elif cf.get('device_consistency') == 'UNKNOWN' %}yellow{% else %}{% endif %}">
+            {{ cf.get("device_consistency","UNKNOWN") }}
+        </span>
+        {% else %}<span class="card-count" style="color:var(--muted)">Unavailable</span>{% endif %}
+    </div>
+    <div class="card-body">
+        {% if cf.get("available") %}
+            <div class="kv-row"><span class="kv-key">Noise Uniformity</span><span class="kv-val">{{ cf.get("noise_uniformity_score",0) }}/100</span></div>
+            <div class="score-bar" style="height:8px;margin-bottom:14px">
+                <div class="score-fill" style="width:{{ cf.get('noise_uniformity_score',0) }}%;background:{% if cf.get('noise_uniformity_score',0) < 40 %}var(--red){% elif cf.get('noise_uniformity_score',0) < 70 %}var(--yellow){% else %}var(--green){% endif %}"></div>
+            </div>
+
+            <div class="kv-row">
+                <span class="kv-key">Possible Edited Image</span>
+                <span class="kv-val" style="color:{% if cf.get('possible_edited_image') %}var(--yellow){% else %}var(--green){% endif %}">
+                    {{ "Yes — regions flagged below" if cf.get("possible_edited_image") else "No inconsistencies flagged" }}
+                </span>
+            </div>
+
+            {% if cf.get("possible_edited_regions") %}
+            <div class="dns-section-title" style="margin-top:12px">Flagged Regions (Noise Pattern Deviation)</div>
+            {% for r in cf.get("possible_edited_regions",[]) %}
+            <div class="path-item">
+                <span class="path-dot sensitive">⚠</span>
+                <span class="path-str">{{ r.get("region","?") }}</span>
+                <span class="path-src">z-score {{ r.get("deviation_z_score","?") }}</span>
+            </div>
+            {% endfor %}
+            {% endif %}
+
+            {% if cf.get("fingerprint_hash") %}
+            <div class="kv-row" style="margin-top:8px"><span class="kv-key">Noise Signature</span><span class="kv-val" style="font-size:10px">{{ cf.get("fingerprint_hash") }}</span></div>
+            {% endif %}
+
+            <div class="api-error-note" style="margin-top:10px">ℹ {{ cf.get("note") }}</div>
+            <div class="api-error-note" style="margin-top:8px;border-left-color:var(--yellow)">⚠ <b>Important:</b> {{ cf.get("limitation_note") }}</div>
+        {% else %}
+            <div class="api-error-note">⚠ {{ cf.get("error","Camera fingerprinting unavailable.") }}</div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 
     {# ══ METADATA PRIVACY RISK ══ #}
     {% set mr = image_intel.get("metadata_risk") %}
@@ -564,8 +688,47 @@
     </div>
     {% endif %}
 
+    {# ══ HIDDEN EMBEDDED DATA ══ #}
+    {% set hd = image_intel.get("hidden_data") %}
+    {% if hd %}
+    <div class="card full-width">
+        <div class="card-header">
+            <span class="card-icon">🕵️</span><span class="card-title">Hidden Embedded Data</span>
+            {% if hd.get("available") %}
+            <span class="card-count {% if hd.get('highest_severity') == 'high' %}red{% elif hd.get('highest_severity') == 'medium' %}yellow{% endif %}">
+                {{ hd.get("segments_found", 0) }} found
+            </span>
+            {% else %}<span class="card-count" style="color:var(--muted)">N/A</span>{% endif %}
+        </div>
+        <div class="card-body">
+            {% if hd.get("available") %}
+                {% if hd.get("segments_found", 0) > 0 %}
+                    <div class="api-error-note" style="margin-bottom:12px;border-left-color:var(--red)">
+                        ⚠ This file contains vendor-embedded binary data not visible in the displayed photo
+                        (~{{ (hd.get("total_hidden_bytes",0) // 1024) }} KB total across {{ hd.get("segments_found") }} segment(s)).
+                    </div>
+                    {% for f in hd.get("findings", []) %}
+                    <div class="breach-item {% if f.get('severity') == 'high' %}high{% elif f.get('severity') == 'medium' %}medium{% endif %}">
+                        <div class="breach-name">{{ f.get("label","?") }} <span style="color:var(--muted);font-weight:normal">({{ f.get("name") }})</span></div>
+                        <div class="breach-meta">
+                            <span class="breach-tag breach-source-tag">{{ (f.get("size_bytes",0) // 1024) }} KB</span>
+                            <span class="breach-tag" style="color:var(--muted)">offset {{ f.get("offset","?") }}</span>
+                        </div>
+                        <div style="font-size:11px;color:var(--text);margin-top:6px">{{ f.get("explanation","") }}</div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                <p class="no-data" style="color:var(--green)">✓ No hidden vendor-embedded segments detected.</p>
+                {% endif %}
+            {% else %}
+                <div class="api-error-note">ℹ {{ hd.get("reason","Not applicable to this file.") }}</div>
+            {% endif %}
+        </div>
+    </div>
+    {% endif %}
+
     {# ══════════════════════════════════════════════════════════════════
-       10 ADDITIONAL IMAGE INTELLIGENCE FEATURES
+       ADDITIONAL IMAGE INTELLIGENCE FEATURES
        ══════════════════════════════════════════════════════════════════ #}
 
     {# ══ AI IMAGE CAPTION ══ #}
@@ -624,12 +787,12 @@
     </div>
     {% endif %}
 
-    {# ══ ELA / FORGERY DETECTION ══ #}
+    {# ══ TAMPERING DETECTION: ELA + COPY-MOVE + JPEG BLOCK ANALYSIS ══ #}
     {% set forg = image_intel.get("forgery") %}
     {% if forg %}
-    <div class="card">
+    <div class="card full-width">
         <div class="card-header">
-            <span class="card-icon">🩻</span><span class="card-title">ELA / Forgery Detection</span>
+            <span class="card-icon">🩻</span><span class="card-title">Tampering Detection (ELA / Copy-Move / JPEG)</span>
             {% if forg.get("available") %}
             <span class="card-count {% if forg.get('forgery_likelihood') == 'HIGH' %}red{% elif forg.get('forgery_likelihood') == 'MEDIUM' %}yellow{% else %}{% endif %}">
                 {{ forg.get("forgery_likelihood","LOW") }}
@@ -638,10 +801,10 @@
         </div>
         <div class="card-body">
             {% if forg.get("available") %}
+                <div class="dns-section-title">Error Level Analysis (ELA)</div>
                 <div class="kv-row"><span class="kv-key">Mean Error Level</span><span class="kv-val">{{ forg.get("mean_ela",0) }}</span></div>
                 <div class="kv-row"><span class="kv-key">Max Error Level</span><span class="kv-val">{{ forg.get("max_ela",0) }}</span></div>
                 {% if forg.get("suspicious_regions") %}
-                <div class="dns-section-title" style="margin-top:10px">Suspicious Regions</div>
                 {% for r in forg.get("suspicious_regions",[]) %}
                 <div class="path-item">
                     <span class="path-dot sensitive">⚠</span>
@@ -650,17 +813,61 @@
                 </div>
                 {% endfor %}
                 {% else %}
-                <p class="no-data" style="color:var(--green)">✓ No abnormal compression regions found.</p>
+                <p class="no-data" style="color:var(--green)">✓ No abnormal compression regions found (ELA).</p>
                 {% endif %}
-                <div class="api-error-note" style="margin-top:10px">ℹ {{ forg.get("note") }}</div>
+
+                {% set cm = forg.get("copy_move") %}
+                {% if cm %}
+                <div class="dns-section-title" style="margin-top:14px">Copy-Move / Clone Detection</div>
+                {% if cm.get("available") %}
+                    {% if cm.get("suspicious_match_count",0) > 0 %}
+                    <div class="warn-flag" style="margin-bottom:8px">⚠ {{ cm.get("suspicious_match_count") }} suspicious duplicated-region match(es) found.</div>
+                    {% for m in cm.get("matches",[])[:8] %}
+                    <div class="pattern-item">
+                        <span class="pat-fmt">({{ m.get("point_a")[0] }}, {{ m.get("point_a")[1] }}) ↔ ({{ m.get("point_b")[0] }}, {{ m.get("point_b")[1] }})</span>
+                        <span class="pat-conf conf-medium">dist {{ m.get("spatial_distance_px") }}px</span>
+                    </div>
+                    {% endfor %}
+                    {% else %}
+                    <p class="no-data" style="color:var(--green)">✓ No copy-move / clone patterns detected.</p>
+                    {% endif %}
+                    <div class="api-error-note" style="margin-top:8px">ℹ {{ cm.get("note") }}</div>
+                {% else %}
+                    <div class="api-error-note">⚠ {{ cm.get("error","Copy-move analysis unavailable.") }}</div>
+                {% endif %}
+                {% endif %}
+
+                {% set jp = forg.get("jpeg_analysis") %}
+                {% if jp %}
+                <div class="dns-section-title" style="margin-top:14px">JPEG Block / Compression Analysis</div>
+                {% if jp.get("available") %}
+                    {% if jp.get("is_jpeg") %}
+                    <div class="kv-row"><span class="kv-key">Quantization Tables</span><span class="kv-val">{{ jp.get("quantization_tables_found",0) }}</span></div>
+                    <div class="kv-row"><span class="kv-key">Blockiness Score</span><span class="kv-val">{{ jp.get("blockiness_score",0) }}</span></div>
+                    <div class="kv-row">
+                        <span class="kv-key">Double Compression</span>
+                        <span class="kv-val" style="color:{% if jp.get('double_compression_suspected') %}var(--yellow){% else %}var(--green){% endif %}">
+                            {{ "Suspected" if jp.get("double_compression_suspected") else "Not indicated" }}
+                        </span>
+                    </div>
+                    {% else %}
+                    <p class="no-data">{{ jp.get("note","Not a JPEG — skipped.") }}</p>
+                    {% endif %}
+                    {% if jp.get("is_jpeg") %}<div class="api-error-note" style="margin-top:8px">ℹ {{ jp.get("note") }}</div>{% endif %}
+                {% else %}
+                    <div class="api-error-note">⚠ {{ jp.get("error","JPEG block analysis unavailable.") }}</div>
+                {% endif %}
+                {% endif %}
+
+                <div class="api-error-note" style="margin-top:12px;border-left-color:var(--yellow)">ℹ {{ forg.get("note") }}</div>
             {% else %}
-                <div class="api-error-note">⚠ {{ forg.get("error","ELA analysis unavailable.") }}</div>
+                <div class="api-error-note">⚠ {{ forg.get("error","Forgery analysis unavailable.") }}</div>
             {% endif %}
         </div>
     </div>
     {% endif %}
 
-    {# ══ FACE ATTRIBUTES ══ #}
+    {# ══ FACE ATTRIBUTES (Age, Gender, Emotion, Glasses, Mask, Eyes Open) ══ #}
     {% set fa = image_intel.get("face_attributes") %}
     {% if fa %}
     <div class="card">
@@ -676,6 +883,11 @@
                     <div class="emp-name">Face #{{ loop.index }}</div>
                     <div class="emp-meta">
                         {% if f.get("age") %}<span class="emp-tag emp-ct">Age ~{{ f.get("age") }}</span>{% endif %}
+                        {% if f.get("dominant_gender") %}
+                        <span class="emp-tag" style="color:var(--blue);background:rgba(68,136,255,0.1)">
+                            {{ f.get("dominant_gender") }}{% if f.get("gender_confidence") %} ({{ f.get("gender_confidence") }}%){% endif %}
+                        </span>
+                        {% endif %}
                         {% if f.get("dominant_emotion") %}<span class="emp-tag emp-gh">{{ f.get("dominant_emotion") | capitalize }}</span>{% endif %}
                         {% if f.get("glasses_detected") is not none %}
                         <span class="emp-tag" style="{% if f.get('glasses_detected') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--muted);background:rgba(85,85,85,0.12){% endif %}">
@@ -685,6 +897,11 @@
                         {% if f.get("mask_detected") is not none %}
                         <span class="emp-tag" style="{% if f.get('mask_detected') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--muted);background:rgba(85,85,85,0.12){% endif %}">
                             {{ "Mask" if f.get("mask_detected") else "No Mask" }}
+                        </span>
+                        {% endif %}
+                        {% if f.get("eyes_open") is not none %}
+                        <span class="emp-tag" style="{% if f.get('eyes_open') %}color:var(--green);background:rgba(0,255,136,0.1){% else %}color:var(--red);background:rgba(255,60,60,0.1){% endif %}">
+                            {{ "Eyes Open" if f.get("eyes_open") else "Eyes Closed/Unclear" }}
                         </span>
                         {% endif %}
                     </div>
