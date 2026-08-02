@@ -3,10 +3,16 @@ modules/image_intel/metadata_risk.py
 Scores an image's EXIF metadata for privacy/OSINT-value risk — flags
 fields that leak location, device identity, timestamps, or personal
 info (owner names embedded by some camera apps, serial numbers, etc.)
+
+Now also accepts an optional hidden_data_result (from
+hidden_data_extractor.py) so hidden vendor-embedded binary segments
+(e.g. OPPO/OnePlus src.image, rear.depth) factor into the overall score.
 """
 from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
+
+from modules.image_intel import hidden_data_extractor
 
 # (field_name, points, label, category)
 _RISK_FIELDS = [
@@ -19,7 +25,7 @@ _RISK_FIELDS = [
     ("Artist",             20, "Author/artist name embedded", "identity"),
     ("CameraOwnerName",    25, "Camera owner name embedded", "identity"),
     ("UserComment",        5,  "Custom user comment present", "metadata"),
-    ("Software",           5,  "Editing software disclosed", "metadata"),
+    ("Software",            5,  "Editing software disclosed", "metadata"),
     ("DateTimeOriginal",   10, "Original capture timestamp preserved", "timestamp"),
     ("CreateDate",         5,  "Creation timestamp preserved", "timestamp"),
 ]
@@ -66,7 +72,15 @@ def _level_for_score(score: int) -> str:
     return "Low"
 
 
-def assess(metadata: dict) -> MetadataRiskResult:
+def assess(metadata: dict, hidden_data_result: dict | None = None) -> MetadataRiskResult:
+    """
+    hidden_data_result is the dict returned by
+    hidden_data_extractor.extract_hidden_segments(). It's optional so this
+    function still works if called without it (backward compatible), but
+    app.py now always passes it so hidden embedded segments (e.g. a full
+    secondary image hidden in an OPPO/OnePlus JPEG) are reflected in the
+    score, not just standard EXIF fields.
+    """
     try:
         factors = []
         seen_location = False
@@ -84,10 +98,28 @@ def assess(metadata: dict) -> MetadataRiskResult:
             factors.append(RiskFactor(field=key, points=points, label=label, category=category))
             total += points
 
+        # ── Hidden embedded data contribution ──────────────────────────
+        recs = []
+        if hidden_data_result:
+            contribution = hidden_data_extractor.get_risk_contribution(hidden_data_result)
+            if contribution["points"] > 0:
+                factors.append(
+                    RiskFactor(
+                        field="JSONInfo",
+                        points=contribution["points"],
+                        label="Hidden embedded data detected",
+                        category="hidden_data",
+                    )
+                )
+                total += contribution["points"]
+                recs.append(
+                    f"This file contains hidden vendor-embedded data ({contribution['reason']}). "
+                    "Re-save/re-export the photo through a basic editor before sharing to strip it."
+                )
+
         total = min(total, 100)
         level = _level_for_score(total)
 
-        recs = []
         if seen_location:
             recs.append("Strip GPS tags before sharing publicly (exiftool -gps:all= file.jpg).")
         if any(f.category == "identity" for f in factors):
