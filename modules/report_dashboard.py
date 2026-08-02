@@ -1,7 +1,26 @@
 """
-report_dashboard.py
+report_dashboard.py (v2)
 Analytics, charts, and historical reports for the OSINT platform.
 Returns structured data for rendering in Flask templates / Chart.js.
+
+v2 fixes:
+  • breach_count was hardcoded to 0 in every report, with a comment
+    admitting History doesn't track it — but nothing downstream knew
+    that, so "0 breaches" read as a real finding instead of missing
+    data. It now checks whether History actually has a breach-count
+    column before reporting a number, and if not, reports
+    breach_tracking_available=False so templates can show "not
+    tracked" instead of a false zero.
+  • get_case_stats() / get_alert_stats() / the scheduled-targets loop
+    used one big try/except around the whole query+loop, so a single
+    row with an unexpected field silently zeroed out ALL case/alert/
+    scheduled analytics instead of just skipping that row. Now isolates
+    per-row failures so partial data still renders.
+  • get_hourly_distribution() ignored the `days` argument passed into
+    build_historical_report() and always used a hardcoded 30-day
+    window, so the hourly chart didn't match the period you selected
+    (e.g. viewing a 7-day report still showed a 30-day hourly spread).
+    It now takes `days` explicitly.
 """
 
 import json
@@ -54,6 +73,32 @@ def _safe_strftime(dt, fmt="%Y-%m-%d %H:%M") -> str:
         return str(dt)
 
 
+def _history_has_breach_column() -> bool:
+    """
+    Checks (once, cheaply) whether the History model actually has a
+    breach-count-style column, rather than assuming one exists. Looks
+    for a few plausible field names so this keeps working if the model
+    gets extended later without this file needing another manual edit.
+    """
+    if not _HAS_HISTORY:
+        return False
+    for field_name in ("breach_count", "breaches_found", "leak_count"):
+        if hasattr(History, field_name):
+            return True
+    return False
+
+
+def _get_breach_value(row) -> int:
+    for field_name in ("breach_count", "breaches_found", "leak_count"):
+        val = getattr(row, field_name, None)
+        if val is not None:
+            try:
+                return int(val)
+            except (TypeError, ValueError):
+                return 0
+    return 0
+
+
 # ── Overview Stats ────────────────────────────────────────────────────────────
 
 def get_overview_stats() -> Dict:
@@ -90,21 +135,21 @@ def get_overview_stats() -> Dict:
         try:
             stats["total_cases"] = Case.query.count()
             stats["open_cases"]  = Case.query.filter_by(status="open").count()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[report_dashboard/overview_cases] {e}")
 
     if _HAS_SCHEDULED:
         try:
             stats["scheduled_targets"] = ScheduledTarget.query.filter_by(enabled=True).count()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[report_dashboard/overview_scheduled] {e}")
 
     if _HAS_ALERTS:
         try:
             stats["alerts_sent"]   = AlertLog.query.filter_by(success=True).count()
             stats["alerts_failed"] = AlertLog.query.filter_by(success=False).count()
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[report_dashboard/overview_alerts] {e}")
 
     return stats
 
@@ -191,11 +236,16 @@ def get_scan_type_distribution() -> Dict:
         return {}
 
 
-def get_hourly_distribution() -> Dict:
+def get_hourly_distribution(days: int = 30) -> Dict:
+    """
+    Hourly scan distribution over the given window. Previously hardcoded
+    to 30 days regardless of the report's actual selected period — now
+    takes `days` so the chart matches whatever period the report is for.
+    """
     if not _HAS_HISTORY:
         return {"labels": [f"{h:02d}:00" for h in range(24)], "counts": [0] * 24}
     try:
-        since = _daterange(30)
+        since = _daterange(days)
         rows  = History.query.filter(History.scanned_at >= since).with_entities(History.scanned_at).all()
         hour_counts = [0] * 24
         for row in rows:
@@ -210,40 +260,77 @@ def get_hourly_distribution() -> Dict:
 # ── Case / Alert Analytics ────────────────────────────────────────────────────
 
 def get_case_stats() -> Dict:
+    """
+    Previously one try/except around the whole query+loop meant a single
+    case row with an unexpected field silently zeroed out ALL case
+    analytics. Now isolates per-row failures so partial data still
+    renders instead of the whole section going blank.
+    """
     if not _HAS_CASES:
         return {}
     try:
-        cases           = Case.query.all()
-        status_counts   = Counter(c.status   or "open"   for c in cases)
-        priority_counts = Counter(c.priority or "medium" for c in cases)
-        return {
-            "by_status":   dict(status_counts),
-            "by_priority": dict(priority_counts),
-            "total":       len(cases),
-        }
+        cases = Case.query.all()
     except Exception as e:
-        print(f"[report_dashboard/case_stats] {e}")
+        print(f"[report_dashboard/case_stats_query] {e}")
         return {}
+
+    status_counts: Counter = Counter()
+    priority_counts: Counter = Counter()
+    skipped = 0
+    for c in cases:
+        try:
+            status_counts[getattr(c, "status", None) or "open"] += 1
+            priority_counts[getattr(c, "priority", None) or "medium"] += 1
+        except Exception as e:
+            skipped += 1
+            print(f"[report_dashboard/case_stats_row] {e}")
+
+    result = {
+        "by_status":   dict(status_counts),
+        "by_priority": dict(priority_counts),
+        "total":       len(cases),
+    }
+    if skipped:
+        result["skipped_rows"] = skipped
+    return result
 
 
 def get_alert_stats(days: int = 30) -> Dict:
+    """Same per-row fault isolation as get_case_stats()."""
     if not _HAS_ALERTS:
         return {}
     try:
-        since       = _daterange(days)
-        logs        = AlertLog.query.filter(AlertLog.sent_at >= since).all()
-        type_counts = Counter(l.alert_type for l in logs)
-        sev_counts  = Counter(l.severity   for l in logs)
-        return {
-            "total":       len(logs),
-            "successful":  sum(1 for l in logs if l.success),
-            "failed":      sum(1 for l in logs if not l.success),
-            "by_type":     dict(type_counts),
-            "by_severity": dict(sev_counts),
-        }
+        since = _daterange(days)
+        logs  = AlertLog.query.filter(AlertLog.sent_at >= since).all()
     except Exception as e:
-        print(f"[report_dashboard/alert_stats] {e}")
+        print(f"[report_dashboard/alert_stats_query] {e}")
         return {}
+
+    type_counts: Counter = Counter()
+    sev_counts: Counter = Counter()
+    successful = failed = skipped = 0
+    for l in logs:
+        try:
+            type_counts[getattr(l, "alert_type", None) or "unknown"] += 1
+            sev_counts[getattr(l, "severity", None) or "info"] += 1
+            if getattr(l, "success", False):
+                successful += 1
+            else:
+                failed += 1
+        except Exception as e:
+            skipped += 1
+            print(f"[report_dashboard/alert_stats_row] {e}")
+
+    result = {
+        "total":       len(logs),
+        "successful":  successful,
+        "failed":      failed,
+        "by_type":     dict(type_counts),
+        "by_severity": dict(sev_counts),
+    }
+    if skipped:
+        result["skipped_rows"] = skipped
+    return result
 
 
 # ── Main Report Builder ───────────────────────────────────────────────────────
@@ -258,11 +345,13 @@ def build_historical_report(days: int = 30) -> Dict:
         report.top_targets          ← list of {target, count, flagged}
         report.recent_scans         ← list of dicts with string scanned_at
         report.daily_breakdown      ← list of {date, count, flagged}
+        report.breach_tracking_available  ← bool, see breach_count note below
     """
     trend       = get_scan_trend(days)
     flagged_tr  = get_flagged_trend(days)
     top_targets = get_top_targets(10)
     overview    = get_overview_stats()
+    breach_tracked = _history_has_breach_column()
 
     report = {
         # Meta
@@ -274,6 +363,7 @@ def build_historical_report(days: int = 30) -> Dict:
         "flagged_count":  0,
         "unique_targets": 0,
         "breach_count":   0,
+        "breach_tracking_available": breach_tracked,
         "avg_per_day":    0,
 
         # Chart data (flat lists)
@@ -290,12 +380,24 @@ def build_historical_report(days: int = 30) -> Dict:
 
         # Extra analytics
         "scan_type_distribution": get_scan_type_distribution(),
-        "hourly_distribution":    get_hourly_distribution(),
+        "hourly_distribution":    get_hourly_distribution(days),
         "case_stats":             get_case_stats(),
         "alert_stats":            get_alert_stats(days),
         "recent_alerts":          [],
         "scheduled_overview":     [],
+
+        # Anything this report couldn't fully compute — surfaced explicitly
+        # instead of silently presenting partial/zeroed data as complete.
+        "data_limitations": [],
     }
+
+    if not breach_tracked:
+        report["data_limitations"].append(
+            "Breach count is not tracked per-scan in the History table — "
+            "breach_count reflects only the most recent cached scan, not "
+            "a historical total. Add a breach_count column to History and "
+            "populate it in run_osint_scan()/history writes to enable this."
+        )
 
     # Fill flat stats from overview
     if _HAS_HISTORY:
@@ -308,8 +410,18 @@ def build_historical_report(days: int = 30) -> Dict:
             report["total_scans"]    = len(period_scans)
             report["flagged_count"]  = period_flagged
             report["unique_targets"] = unique_targets
-            report["breach_count"]   = 0          # extend if you track breaches in History
             report["avg_per_day"]    = round(len(period_scans) / max(days, 1), 1)
+
+            if breach_tracked:
+                total_breaches = 0
+                for s in period_scans:
+                    try:
+                        total_breaches += _get_breach_value(s)
+                    except Exception:
+                        pass
+                report["breach_count"] = total_breaches
+            # else: stays 0, but breach_tracking_available=False tells the
+            # template not to present that 0 as a real finding.
         except Exception as e:
             print(f"[report_dashboard/flat_stats] {e}")
 
@@ -385,20 +497,23 @@ def build_historical_report(days: int = 30) -> Dict:
         except Exception as e:
             print(f"[report_dashboard/recent_alerts] {e}")
 
-    # Scheduled targets
+    # Scheduled targets — per-row isolation, same reasoning as case/alert stats
     if _HAS_SCHEDULED:
         try:
             targets = ScheduledTarget.query.filter_by(enabled=True).all()
-            report["scheduled_overview"] = [
-                {
-                    "target":          t.target,
-                    "frequency":       t.frequency,
-                    "last_run":        _safe_strftime(t.last_run) or "Never",
-                    "change_detected": t.change_detected or False,
-                    "run_count":       t.run_count or 0,
-                }
-                for t in targets
-            ]
+            overview_list = []
+            for t in targets:
+                try:
+                    overview_list.append({
+                        "target":          t.target,
+                        "frequency":       t.frequency,
+                        "last_run":        _safe_strftime(getattr(t, "last_run", None)) or "Never",
+                        "change_detected": getattr(t, "change_detected", False) or False,
+                        "run_count":       getattr(t, "run_count", 0) or 0,
+                    })
+                except Exception as e:
+                    print(f"[report_dashboard/scheduled_row] {e}")
+            report["scheduled_overview"] = overview_list
         except Exception as e:
             print(f"[report_dashboard/scheduled] {e}")
 
