@@ -2,7 +2,7 @@
 modules/phone_lookup.py  —  Full OSINT phone intelligence module
 Levels: Region · Timezone · VOIP/Virtual · Carrier Detail · Risk Score ·
         WhatsApp · Scam Intelligence · Reverse OSINT · Cross-Correlation ·
-        Investigation Summary
+        Investigation Summary · Number-Type Deep Dive · Porting Disclosure
 """
 
 from __future__ import annotations
@@ -32,11 +32,9 @@ HEADERS = {
 }
 
 SPAM_API_KEY = os.environ.get("SPAM_API_KEY", "")
-HLR_API_KEY  = os.environ.get("HLR_API_KEY", "")  # optional licensed HLR provider (network/ported/MCC/MNC)
+HLR_API_KEY  = os.environ.get("HLR_API_KEY", "")
 BUSINESS_DIRECTORY_API_KEY = os.environ.get("BUSINESS_DIRECTORY_API_KEY", "")
 
-# Carrier-name substrings that are commonly VOIP / virtual-number issuers.
-# Heuristic only — never presented as a definitive legal classification.
 _VOIP_CARRIER_HINTS = [
     "voip", "twilio", "bandwidth", "vonage", "skype", "google voice",
     "textnow", "textfree", "pinger", "bandwidth.com", "level 3",
@@ -44,12 +42,31 @@ _VOIP_CARRIER_HINTS = [
     "vopium", "nextiva", "ringcentral", "grasshopper", "ooma",
 ]
 
-# Substrings that suggest a disposable/burner virtual number service,
-# distinct from general business VOIP (e.g. Twilio used by a real company).
 _DISPOSABLE_HINTS = [
     "textnow", "textfree", "pinger", "google voice", "burner",
     "hushed", "sideline", "2ndline",
 ]
+
+# Human-readable labels for phonenumbers' full PhoneNumberType enum —
+# previously collapsed into a few buckets, now exposed in full so an
+# investigator can see the raw classification, not just mobile/landline/voip.
+_FULL_TYPE_LABELS = {
+    0: "FIXED_LINE",
+    1: "MOBILE",
+    2: "FIXED_LINE_OR_MOBILE",
+    3: "TOLL_FREE",
+    4: "PREMIUM_RATE",
+    5: "SHARED_COST",
+    6: "VOIP",
+    7: "PERSONAL_NUMBER",
+    8: "PAGER",
+    9: "UAN",
+    10: "UNKNOWN",
+    27: "EMERGENCY",
+    28: "VOICEMAIL",
+    29: "SHORT_CODE",
+    30: "STANDARD_RATE",
+}
 
 
 # ══════════════════════════════════════════════════════════════
@@ -86,11 +103,6 @@ class PhoneCorrelation:
 
 @dataclass
 class WhatsAppStatus:
-    """
-    Public WhatsApp presence check via the wa.me share link — the same
-    page anyone gets from clicking a wa.me link. No login, no private API.
-    Best-effort signal, not a guarantee.
-    """
     checked:    bool = False
     registered: Optional[bool] = None
     method:     str = "wa.me public link"
@@ -107,19 +119,11 @@ class WhatsAppStatus:
 
 @dataclass
 class ScamReputation:
-    """
-    Two modes:
-      1. Licensed provider configured (SPAM_API_KEY) → real reported figures.
-      2. No provider configured → an honestly-labeled HEURISTIC risk read
-         built only from signals we already have (VOIP/disposable carrier
-         hints, line type, validity). This is NEVER presented as a report
-         count or verified fraud score — only as a labeled estimate.
-    """
     available:         bool = False
-    source:             str = "none"       # "provider" | "heuristic" | "none"
+    source:             str = "none"
     spam_reports:       Optional[int] = None
     robocall_reports:   Optional[int] = None
-    fraud_score:        Optional[str] = None   # "Low" / "Medium" / "High"
+    fraud_score:        Optional[str] = None
     fraud_score_basis:  list[str] = field(default_factory=list)
     last_reported:      Optional[str] = None
     note:               str = "No licensed spam-report provider configured (SPAM_API_KEY unset)."
@@ -139,15 +143,8 @@ class ScamReputation:
 
 @dataclass
 class CarrierDetail:
-    """
-    Real-time network type (5G/4G), number-porting status, and MCC/MNC
-    require a licensed HLR lookup provider — phonenumbers alone can't
-    give these. Honestly reports 'not available' until HLR_API_KEY is set.
-    A best-effort MCC (mobile country code) is derived from the number's
-    calling code when phonenumbers metadata makes it unambiguous.
-    """
     available:   bool = False
-    network:     Optional[str] = None   # "5G" / "4G" / "3G" / "2G"
+    network:     Optional[str] = None
     ported:      Optional[bool] = None
     mcc:         Optional[str] = None
     mnc:         Optional[str] = None
@@ -166,16 +163,10 @@ class CarrierDetail:
 
 @dataclass
 class BusinessListing:
-    """
-    Requires a licensed directory/enrichment API (e.g. Twilio Lookup
-    caller-name, Whitepages Pro, Data Axle) — not publicly scrapable.
-    `type` and `source` are included so the UI can label whether a hit
-    is a BUSINESS or CONSUMER listing and which provider supplied it.
-    """
     available: bool = False
     name:      Optional[str] = None
-    type:      Optional[str] = None   # "BUSINESS" | "CONSUMER" | None
-    source:    Optional[str] = None   # e.g. "Twilio Lookup"
+    type:      Optional[str] = None
+    source:    Optional[str] = None
     note:      str = "No business directory configured."
 
     def to_dict(self) -> dict:
@@ -190,12 +181,6 @@ class BusinessListing:
 
 @dataclass
 class PublicMentionLink:
-    """
-    A *search suggestion*, not a confirmed hit. Points an investigator to
-    where public phone-mention data could legally be checked by hand
-    (reverse-lookup directories, social search, general web search).
-    Never claims that a match exists.
-    """
     label:    str
     platform: str
     url:      str
@@ -207,11 +192,58 @@ class PublicMentionLink:
 
 
 @dataclass
+class NumberValidityDetail:
+    """
+    Deep validity breakdown — distinguishes 'possible' (correct length/
+    format for its region) from 'valid' (passes the full carrier-range
+    validation). A number can be possible-but-invalid, which is itself
+    a useful fraud/typo signal.
+    """
+    is_possible:      bool = False
+    is_valid:         bool = False
+    possible_reason:  str = ""   # phonenumbers' ValidationResult name
+    raw_type:         str = "UNKNOWN"   # full enum label, e.g. "FIXED_LINE_OR_MOBILE"
+    note:             str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "is_possible": self.is_possible,
+            "is_valid": self.is_valid,
+            "possible_reason": self.possible_reason,
+            "raw_type": self.raw_type,
+            "note": self.note,
+        }
+
+
+@dataclass
+class NumberPatternFlags:
+    """
+    Local, zero-dependency pattern heuristics — sequential digits,
+    repeated-digit runs, and known India telemarketing/toll-free prefix
+    ranges. Never presented as proof of anything, only as a contributing
+    signal alongside everything else.
+    """
+    is_sequential:      bool = False
+    is_repeated_digit:  bool = False
+    is_telemarketing_range: bool = False
+    matched_prefix:     Optional[str] = None
+    flags:              list[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return {
+            "is_sequential": self.is_sequential,
+            "is_repeated_digit": self.is_repeated_digit,
+            "is_telemarketing_range": self.is_telemarketing_range,
+            "matched_prefix": self.matched_prefix,
+            "flags": self.flags,
+        }
+
+
+@dataclass
 class InvestigationSummary:
-    """Human-readable roll-up of everything this module found."""
     paragraphs:      list[str] = field(default_factory=list)
     key_findings:    list[str] = field(default_factory=list)
-    confidence:      str = "LOW"     # LOW | MEDIUM | HIGH
+    confidence:      str = "LOW"
     confidence_note: str = ""
 
     def to_dict(self) -> dict:
@@ -231,20 +263,23 @@ class PhoneResult:
     international:  str = ""
     e164:           str = ""
     national:       str = ""
+    rfc3966:        str = ""
     country_code:   str = ""
     country_name:   str = ""
     carrier_name:   str = ""
-    line_type:      str = "unknown"     # mobile | landline | voip | toll_free | premium | unknown
+    line_type:      str = "unknown"
 
     is_mobile:      bool = False
     is_voip:        bool = False
     is_virtual:     bool = False
     is_disposable:  bool = False
-    voip_matched_hint: Optional[str] = None   # which carrier-name substring triggered the VOIP flag
+    voip_matched_hint: Optional[str] = None
 
     region:         str = ""
     timezones:      list[str] = field(default_factory=list)
 
+    validity_detail:    Optional[NumberValidityDetail] = None
+    pattern_flags:      Optional[NumberPatternFlags] = None
     risk:               Optional[PhoneRisk] = None
     whatsapp:           Optional[WhatsAppStatus] = None
     scam:               Optional[ScamReputation] = None
@@ -270,26 +305,15 @@ class PhoneResult:
         return "LOW"
 
     def _voip_view(self) -> dict:
-        """
-        Template-facing view of the VOIP/virtual-number signal. Built from
-        is_voip / is_disposable / carrier_name so the UI can render a single
-        'VOIP / Virtual Number Check' card without needing to know about the
-        underlying dataclass fields.
-        """
         if not self.valid:
-            return {
-                "available": False,
-                "note": "Cannot assess VOIP status for an invalid number.",
-            }
+            return {"available": False, "note": "Cannot assess VOIP status for an invalid number."}
         if not self.carrier_name and self.line_type == "unknown":
             return {
-                "available": True,
-                "is_voip": False,
-                "confidence": "none",
+                "available": True, "is_voip": False, "confidence": "none",
                 "note": "No carrier name or line type resolved; cannot assess VOIP status.",
             }
 
-        confidence = "medium" if self.voip_matched_hint else ("low" if self.is_voip else "low")
+        confidence = "medium" if self.voip_matched_hint else "low"
         is_flagged = self.is_voip or self.is_disposable
 
         if self.is_disposable:
@@ -302,23 +326,22 @@ class PhoneResult:
             note = "No VOIP indicators found in carrier name or line type."
 
         return {
-            "available": True,
-            "is_voip": is_flagged,
-            "confidence": confidence,
-            "matched_provider": self.voip_matched_hint,
-            "note": note,
+            "available": True, "is_voip": is_flagged, "confidence": confidence,
+            "matched_provider": self.voip_matched_hint, "note": note,
         }
 
     def _porting_view(self) -> dict:
-        """
-        Template-facing view of porting status, sourced from carrier_detail
-        (which itself honestly reports unavailable without HLR_API_KEY).
-        """
         cd = self.carrier_detail
         if not cd:
             return {"available": False, "note": "Porting history unavailable."}
         if not cd.available:
-            return {"available": False, "note": cd.note}
+            return {
+                "available": False,
+                "note": cd.note + " Note: even when unavailable, treat the carrier "
+                        "name above as a snapshot — Mobile Number Portability (MNP) "
+                        "means the original issuing carrier and the number's current "
+                        "network operator can differ without a live HLR check.",
+            }
         return {
             "available": True,
             "ported": cd.ported,
@@ -336,6 +359,7 @@ class PhoneResult:
             "international": self.international,
             "e164": self.e164,
             "national": self.national,
+            "rfc3966": self.rfc3966,
             "country_code": self.country_code,
             "country_name": self.country_name,
             "carrier_name": self.carrier_name,
@@ -346,6 +370,8 @@ class PhoneResult:
             "is_disposable": self.is_disposable,
             "region": self.region,
             "timezones": self.timezones,
+            "validity_detail": self.validity_detail.to_dict() if self.validity_detail else None,
+            "pattern_flags": self.pattern_flags.to_dict() if self.pattern_flags else None,
             "risk": self.risk.to_dict() if self.risk else None,
             "whatsapp": self.whatsapp.to_dict() if self.whatsapp else None,
             "scam": self.scam.to_dict() if self.scam else None,
@@ -354,7 +380,6 @@ class PhoneResult:
             "correlation": self.correlation.to_dict() if self.correlation else None,
             "public_mentions": [m.to_dict() for m in self.public_mentions],
             "summary": self.summary.to_dict() if self.summary else None,
-            # ── template-compatibility views (index.html expects these) ──
             "voip": self._voip_view(),
             "porting": self._porting_view(),
             "confidence": self.confidence,
@@ -364,7 +389,7 @@ class PhoneResult:
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 1 — REGION
+# HELPERS
 # ══════════════════════════════════════════════════════════════
 
 def _get_region(parsed) -> str:
@@ -376,10 +401,6 @@ def _get_region(parsed) -> str:
         return ""
 
 
-# ══════════════════════════════════════════════════════════════
-# LEVEL 2 — TIMEZONE
-# ══════════════════════════════════════════════════════════════
-
 def _get_timezones(parsed) -> list[str]:
     if not _HAS_PHONENUMBERS:
         return []
@@ -390,29 +411,118 @@ def _get_timezones(parsed) -> list[str]:
         return []
 
 
-# ══════════════════════════════════════════════════════════════
-# LEVEL 3 — VOIP / VIRTUAL / DISPOSABLE DETECTION
-# ══════════════════════════════════════════════════════════════
-
 def _detect_voip_flags(carrier_name: str, line_type: str) -> tuple[bool, bool, bool, Optional[str]]:
-    """
-    Returns (is_voip, is_virtual, is_disposable, matched_hint).
-    Heuristic based on phonenumbers' own type classification plus known
-    VOIP/virtual-number carrier name substrings. Never claims certainty
-    beyond what the signal supports.
-    """
     name_lower = (carrier_name or "").lower()
-
     matched_hint = next((h for h in _VOIP_CARRIER_HINTS if h in name_lower), None)
     is_voip = line_type == "voip" or matched_hint is not None
     is_virtual = is_voip
     is_disposable = any(h in name_lower for h in _DISPOSABLE_HINTS)
-
     return is_voip, is_virtual, is_disposable, matched_hint
 
 
+def _build_validity_detail(parsed, raw_target: str) -> NumberValidityDetail:
+    """
+    Possible-vs-valid distinction: a number can be the right length/shape
+    for its region (possible) yet fail carrier-range validation (invalid).
+    That gap is itself a signal — e.g. common in typo'd or fabricated
+    numbers used in fraud/scam contexts.
+    """
+    detail = NumberValidityDetail()
+    if not _HAS_PHONENUMBERS:
+        return detail
+
+    try:
+        detail.is_valid = phonenumbers.is_valid_number(parsed)
+    except Exception:
+        detail.is_valid = False
+
+    try:
+        possible_result = phonenumbers.is_possible_number_with_reason(parsed)
+        # ValidationResult enum: IS_POSSIBLE=0, INVALID_COUNTRY_CODE=1,
+        # TOO_SHORT=2, TOO_LONG=3, INVALID_LENGTH=5
+        reason_map = {
+            0: "IS_POSSIBLE",
+            1: "INVALID_COUNTRY_CODE",
+            2: "TOO_SHORT",
+            3: "TOO_LONG",
+            4: "IS_POSSIBLE_LOCAL_ONLY",
+            5: "INVALID_LENGTH",
+        }
+        detail.possible_reason = reason_map.get(int(possible_result), "UNKNOWN")
+        detail.is_possible = int(possible_result) == 0
+    except Exception:
+        detail.is_possible = phonenumbers.is_possible_number(parsed) if _HAS_PHONENUMBERS else False
+        detail.possible_reason = "IS_POSSIBLE" if detail.is_possible else "UNKNOWN"
+
+    try:
+        raw_type_int = int(phonenumbers.number_type(parsed))
+        detail.raw_type = _FULL_TYPE_LABELS.get(raw_type_int, f"TYPE_{raw_type_int}")
+    except Exception:
+        detail.raw_type = "UNKNOWN"
+
+    if detail.is_possible and not detail.is_valid:
+        detail.note = (
+            "Number has the correct length/format for its region but does not "
+            "match any assigned carrier range — possibly a typo, unassigned "
+            "number, or fabricated number."
+        )
+    elif not detail.is_possible:
+        detail.note = f"Number fails basic format checks ({detail.possible_reason})."
+    else:
+        detail.note = "Number passes both possibility and full validity checks."
+
+    return detail
+
+
+def _build_pattern_flags(national_digits: str, country_code: str) -> NumberPatternFlags:
+    """
+    Zero-dependency local heuristics on the digit string itself.
+    India-specific telemarketing/service prefixes are checked only when
+    country_code == '91'; otherwise only generic sequential/repeated
+    checks run. Always a supporting signal, never a standalone verdict.
+    """
+    flags = NumberPatternFlags()
+    digits = re.sub(r"\D", "", national_digits or "")
+    if len(digits) < 6:
+        return flags
+
+    # Sequential ascending or descending run of 5+ digits (e.g. 123456, 987654)
+    asc = "0123456789"
+    desc = asc[::-1]
+    if any(digits[i:i+5] in asc for i in range(len(digits) - 4)) or \
+       any(digits[i:i+5] in desc for i in range(len(digits) - 4)):
+        flags.is_sequential = True
+        flags.flags.append("Contains a 5+ digit sequential run")
+
+    # Same digit repeated 5+ times in a row (e.g. 999999xxxx)
+    for d in "0123456789":
+        if d * 5 in digits:
+            flags.is_repeated_digit = True
+            flags.flags.append(f"Contains 5+ repeated '{d}' digits in a row")
+            break
+
+    if country_code == "91":
+        # Common India telemarketing / commercial-service prefixes
+        india_prefixes = {
+            "140": "Telemarketing (TRAI-designated commercial communication prefix)",
+            "1600": "Toll-free customer service",
+            "1800": "Toll-free customer service",
+        }
+        for prefix, meaning in india_prefixes.items():
+            if digits.startswith(prefix):
+                flags.is_telemarketing_range = True
+                flags.matched_prefix = prefix
+                flags.flags.append(meaning)
+                break
+
+    if not flags.flags:
+        flags.flags.append("No pattern anomalies detected")
+
+    return flags
+
+
 # ══════════════════════════════════════════════════════════════
-# LEVEL 4 — RISK SCORING
+# RISK SCORING
 # ══════════════════════════════════════════════════════════════
 
 def _calculate_risk(result: PhoneResult) -> PhoneRisk:
@@ -420,13 +530,18 @@ def _calculate_risk(result: PhoneResult) -> PhoneRisk:
     reasons = []
 
     if result.valid:
-        score += 30
+        score += 25
         reasons.append("✓ Valid number")
     else:
         reasons.append("✗ Invalid number")
 
+    vd = result.validity_detail
+    if vd and vd.is_possible and not vd.is_valid:
+        score = max(score - 10, 0)
+        reasons.append("⚠ Number is format-possible but fails carrier-range validation")
+
     if result.line_type == "mobile":
-        score += 25
+        score += 22
         reasons.append("✓ Mobile number")
     elif result.line_type == "landline":
         score += 15
@@ -434,6 +549,11 @@ def _calculate_risk(result: PhoneResult) -> PhoneRisk:
     elif result.line_type == "voip":
         score += 5
         reasons.append("⚠ VoIP number (lower trust)")
+    elif result.line_type == "toll_free":
+        reasons.append("ℹ Toll-free number")
+    elif result.line_type == "premium":
+        score = max(score - 10, 0)
+        reasons.append("⚠ Premium-rate number (common in scam schemes)")
     else:
         reasons.append("✗ Unknown line type")
 
@@ -442,14 +562,26 @@ def _calculate_risk(result: PhoneResult) -> PhoneRisk:
     elif result.is_voip:
         reasons.append("⚠ Signals match a known VOIP provider")
 
+    pf = result.pattern_flags
+    if pf:
+        if pf.is_sequential:
+            score = max(score - 8, 0)
+            reasons.append("⚠ Sequential digit pattern detected")
+        if pf.is_repeated_digit:
+            score = max(score - 5, 0)
+            reasons.append("⚠ Repeated-digit pattern detected")
+        if pf.is_telemarketing_range:
+            score = max(score - 5, 0)
+            reasons.append(f"⚠ Matches known telemarketing/service prefix ({pf.matched_prefix})")
+
     if result.region:
-        score += 20
+        score += 18
         reasons.append(f"✓ Region identified: {result.region}")
     else:
         reasons.append("✗ Region not identified")
 
     if result.carrier_name:
-        score += 15
+        score += 13
         reasons.append(f"✓ Carrier identified: {result.carrier_name}")
     else:
         reasons.append("✗ Carrier unknown")
@@ -470,21 +602,17 @@ def _calculate_risk(result: PhoneResult) -> PhoneRisk:
             score = max(score - 10, 0)
             reasons.append(f"⚠ {scam.spam_reports} spam reports on file")
 
-    score = min(score, 100)
+    score = min(max(score, 0), 100)
     level = "LOW" if score >= 70 else "MEDIUM" if score >= 40 else "HIGH"
 
     return PhoneRisk(level=level, score=score, reasons=reasons)
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 5 — WHATSAPP PRESENCE (real, public-facing check)
+# WHATSAPP PRESENCE
 # ══════════════════════════════════════════════════════════════
 
 def _check_whatsapp(e164: str) -> WhatsAppStatus:
-    """
-    Checks the public wa.me redirect page. Best-effort, not guaranteed
-    (privacy settings and page changes can affect accuracy).
-    """
     status = WhatsAppStatus()
     digits = re.sub(r"[^\d]", "", e164)
     if not digits:
@@ -520,15 +648,10 @@ def _check_whatsapp(e164: str) -> WhatsAppStatus:
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 6 — SCAM / SPAM INTELLIGENCE
+# SCAM / SPAM INTELLIGENCE (now folds in pattern_flags too)
 # ══════════════════════════════════════════════════════════════
 
 def _heuristic_scam_estimate(result: PhoneResult) -> ScamReputation:
-    """
-    Built with NO provider configured. Uses only signals this module
-    already derived (never invents report counts). Clearly labeled as a
-    heuristic estimate, not a verified reputation score.
-    """
     basis = []
     risk_points = 0
 
@@ -547,10 +670,28 @@ def _heuristic_scam_estimate(result: PhoneResult) -> ScamReputation:
         basis.append("Carrier could not be identified")
         risk_points += 1
 
+    if result.line_type == "premium":
+        basis.append("Premium-rate number type")
+        risk_points += 2
+
+    pf = result.pattern_flags
+    if pf:
+        if pf.is_sequential:
+            basis.append("Sequential digit pattern in number")
+            risk_points += 1
+        if pf.is_repeated_digit:
+            basis.append("Repeated-digit pattern in number")
+            risk_points += 1
+
+    vd = result.validity_detail
+    if vd and vd.is_possible and not vd.is_valid:
+        basis.append("Possible-but-invalid number (fails carrier-range check)")
+        risk_points += 1
+
     if not basis:
         basis.append("No elevated-risk signals detected in available data")
 
-    fraud_score = "High" if risk_points >= 3 else "Medium" if risk_points >= 1 else "Low"
+    fraud_score = "High" if risk_points >= 4 else "Medium" if risk_points >= 2 else "Low"
 
     return ScamReputation(
         available=True,
@@ -561,79 +702,34 @@ def _heuristic_scam_estimate(result: PhoneResult) -> ScamReputation:
         fraud_score_basis=basis,
         last_reported=None,
         note=("No licensed spam-report provider configured — this is a heuristic "
-              "estimate derived from carrier/validity signals only, not a "
+              "estimate derived from carrier/validity/pattern signals only, not a "
               "verified report count. Configure SPAM_API_KEY for real figures."),
     )
 
 
 def _check_scam(result: PhoneResult) -> ScamReputation:
-    """
-    Two-tier: use a licensed provider if SPAM_API_KEY is set, otherwise
-    fall back to an honestly-labeled heuristic estimate instead of a bare
-    'not available' stub — this is where real numbers plug in.
-    """
-    e164 = result.e164
-
     if not SPAM_API_KEY:
         return _heuristic_scam_estimate(result)
 
     try:
-        # ── Replace with your actual licensed provider call ──
-        # resp = requests.get(
-        #     f"https://provider.example/v1/lookup?number={e164}",
-        #     headers={"Authorization": f"Bearer {SPAM_API_KEY}"},
-        #     timeout=8,
-        # )
-        # data = resp.json()
-        # return ScamReputation(
-        #     available=True,
-        #     source="provider",
-        #     spam_reports=data.get("spam_reports"),
-        #     robocall_reports=data.get("robocall_reports"),
-        #     fraud_score=data.get("fraud_score"),
-        #     fraud_score_basis=["Live data from configured provider"],
-        #     last_reported=data.get("last_reported"),
-        #     note="Live data from configured provider.",
-        # )
         estimate = _heuristic_scam_estimate(result)
         estimate.note = ("SPAM_API_KEY is set but the provider integration is not "
                           "implemented yet — showing a heuristic estimate in the "
-                          "meantime. Wire in the real call above.")
+                          "meantime. Wire in the real call in _check_scam().")
         return estimate
     except Exception as e:
         return ScamReputation(available=False, note=f"Provider error: {e}")
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 7 — CARRIER DETAIL (network / ported / MCC / MNC via HLR)
+# CARRIER DETAIL (HLR)
 # ══════════════════════════════════════════════════════════════
 
 def _check_carrier_detail(e164: str) -> CarrierDetail:
-    """
-    Honestly reports 'not available' unless HLR_API_KEY is configured.
-    Real-time network generation, porting status, and MCC/MNC require a
-    live HLR lookup (e.g. via a Twilio/Telesign-style provider) — this is
-    not derivable from the static phonenumbers metadata database.
-    """
     if not HLR_API_KEY:
         return CarrierDetail()
 
     try:
-        # ── Replace with your actual licensed HLR provider call ──
-        # resp = requests.get(
-        #     f"https://hlr-provider.example/v1/lookup?number={e164}",
-        #     headers={"Authorization": f"Bearer {HLR_API_KEY}"},
-        #     timeout=8,
-        # )
-        # data = resp.json()
-        # return CarrierDetail(
-        #     available=True,
-        #     network=data.get("network"),
-        #     ported=data.get("ported"),
-        #     mcc=data.get("mcc"),
-        #     mnc=data.get("mnc"),
-        #     note="Live data from configured HLR provider.",
-        # )
         return CarrierDetail(
             available=False,
             note="HLR_API_KEY is set but provider integration is not implemented yet.",
@@ -643,40 +739,14 @@ def _check_carrier_detail(e164: str) -> CarrierDetail:
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 8 — BUSINESS LISTING (requires licensed directory)
+# BUSINESS LISTING
 # ══════════════════════════════════════════════════════════════
 
 def _check_business(e164: str) -> BusinessListing:
-    """
-    Honestly reports unavailable unless BUSINESS_DIRECTORY_API_KEY is set.
-    Wire in a real provider (Twilio Lookup caller-name, Whitepages Pro,
-    Data Axle, etc.) in the commented block below.
-    """
     if not BUSINESS_DIRECTORY_API_KEY:
         return BusinessListing()
 
     try:
-        # ── Replace with your actual licensed directory provider call ──
-        # account_sid = os.environ["TWILIO_ACCOUNT_SID"]
-        # auth_token  = os.environ["TWILIO_AUTH_TOKEN"]
-        # resp = requests.get(
-        #     f"https://lookups.twilio.com/v2/PhoneNumbers/{e164}",
-        #     params={"Fields": "caller_name"},
-        #     auth=(account_sid, auth_token),
-        #     timeout=8,
-        # )
-        # data = resp.json()
-        # caller_name = data.get("caller_name") or {}
-        # name = caller_name.get("caller_name")
-        # if not name:
-        #     return BusinessListing(available=False, note="No listing found for this number.")
-        # return BusinessListing(
-        #     available=True,
-        #     name=name,
-        #     type=caller_name.get("caller_type", "unknown"),
-        #     source="Twilio Lookup",
-        #     note="Live data from configured business directory provider.",
-        # )
         return BusinessListing(
             available=False,
             note="BUSINESS_DIRECTORY_API_KEY is set but provider integration is not implemented yet.",
@@ -686,17 +756,10 @@ def _check_business(e164: str) -> BusinessListing:
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 9 — REVERSE PHONE OSINT (public search-link suggestions)
+# REVERSE PHONE OSINT (search-link suggestions only)
 # ══════════════════════════════════════════════════════════════
 
 def _build_public_mentions(e164: str, national: str, international: str) -> list[PublicMentionLink]:
-    """
-    These are NOT scraped results and NOT confirmed matches — they are
-    ready-to-click search links into public, ToS-compliant surfaces so an
-    investigator can manually check for mentions of the number. Modeled on
-    the same disclaimed-suggestion pattern this project already uses for
-    the domain/username Google Dorks and Social Mention cards.
-    """
     if not e164:
         return []
 
@@ -705,54 +768,27 @@ def _build_public_mentions(e164: str, national: str, international: str) -> list
     q_national = requests.utils.quote(national or e164)
 
     links = [
-        PublicMentionLink(
-            label="Reverse lookup directory",
-            platform="Sync.me",
-            url=f"https://sync.me/search/?number={digits}",
-            category="Reverse Lookup",
-        ),
-        PublicMentionLink(
-            label="Reverse lookup directory",
-            platform="WhoCallsMe",
-            url=f"https://whocallsme.com/Phone-Number.aspx/{digits}",
-            category="Reverse Lookup",
-        ),
-        PublicMentionLink(
-            label="Community spam reports",
-            platform="ShouldIAnswer",
-            url=f"https://www.shouldianswer.com/phone-number/{digits}",
-            category="Reverse Lookup",
-        ),
-        PublicMentionLink(
-            label="General web mentions",
-            platform="Google",
-            url=f"https://www.google.com/search?q=%22{q_e164}%22+OR+%22{q_national}%22",
-            category="General Mentions",
-        ),
-        PublicMentionLink(
-            label="Classifieds / marketplace mentions",
-            platform="Google (site-scoped)",
-            url=f"https://www.google.com/search?q=%22{q_e164}%22+site:craigslist.org+OR+site:olx.com",
-            category="General Mentions",
-        ),
-        PublicMentionLink(
-            label="Social profile search",
-            platform="Facebook",
-            url=f"https://www.facebook.com/search/top/?q={q_e164}",
-            category="Social Profiles",
-        ),
-        PublicMentionLink(
-            label="Messaging profile check",
-            platform="Telegram (t.me resolver)",
-            url=f"https://t.me/{digits}",
-            category="Social Profiles",
-        ),
+        PublicMentionLink("Reverse lookup directory", "Sync.me",
+                           f"https://sync.me/search/?number={digits}", "Reverse Lookup"),
+        PublicMentionLink("Reverse lookup directory", "WhoCallsMe",
+                           f"https://whocallsme.com/Phone-Number.aspx/{digits}", "Reverse Lookup"),
+        PublicMentionLink("Community spam reports", "ShouldIAnswer",
+                           f"https://www.shouldianswer.com/phone-number/{digits}", "Reverse Lookup"),
+        PublicMentionLink("General web mentions", "Google",
+                           f"https://www.google.com/search?q=%22{q_e164}%22+OR+%22{q_national}%22", "General Mentions"),
+        PublicMentionLink("Classifieds / marketplace mentions", "Google (site-scoped)",
+                           f"https://www.google.com/search?q=%22{q_e164}%22+site:craigslist.org+OR+site:olx.com",
+                           "General Mentions"),
+        PublicMentionLink("Social profile search", "Facebook",
+                           f"https://www.facebook.com/search/top/?q={q_e164}", "Social Profiles"),
+        PublicMentionLink("Messaging profile check", "Telegram (t.me resolver)",
+                           f"https://t.me/{digits}", "Social Profiles"),
     ]
     return links
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 10 — CROSS-CORRELATION
+# CROSS-CORRELATION
 # ══════════════════════════════════════════════════════════════
 
 def _cross_correlate(phone_e164: str, country_code: str) -> PhoneCorrelation:
@@ -786,7 +822,7 @@ def _cross_correlate(phone_e164: str, country_code: str) -> PhoneCorrelation:
 
 
 # ══════════════════════════════════════════════════════════════
-# LEVEL 11 — INVESTIGATION SUMMARY
+# INVESTIGATION SUMMARY
 # ══════════════════════════════════════════════════════════════
 
 def _build_summary(result: PhoneResult) -> InvestigationSummary:
@@ -794,9 +830,16 @@ def _build_summary(result: PhoneResult) -> InvestigationSummary:
     findings = []
 
     if not result.valid:
+        vd = result.validity_detail
+        extra = ""
+        if vd and vd.is_possible:
+            extra = (" The number is at least format-possible for its region, but "
+                     "fails carrier-range validation — this can indicate a typo, "
+                     "an unassigned number, or a fabricated number.")
         paragraphs.append(
-            f"The number {result.raw!r} did not pass standard validity checks. "
-            "Most downstream signals (carrier, region, risk) are unreliable "
+            f"The number {result.raw!r} did not pass standard validity checks."
+            + extra +
+            " Most downstream signals (carrier, region, risk) are unreliable "
             "for an invalid number, so treat the rest of this report with caution."
         )
         findings.append("Number failed validity check")
@@ -826,6 +869,18 @@ def _build_summary(result: PhoneResult) -> InvestigationSummary:
             "lowers — but doesn't rule out — trust on its own."
         )
         findings.append("Carrier suggests a VOIP line")
+
+    pf = result.pattern_flags
+    if pf and (pf.is_sequential or pf.is_repeated_digit or pf.is_telemarketing_range):
+        bits = [f for f in [
+            "a sequential digit run" if pf.is_sequential else None,
+            "a repeated-digit pattern" if pf.is_repeated_digit else None,
+            f"a known telemarketing/service prefix ({pf.matched_prefix})" if pf.is_telemarketing_range else None,
+        ] if f]
+        paragraphs.append(
+            "The digit pattern itself shows " + " and ".join(bits) +
+            ", which is a mild additional signal alongside the carrier/validity data — not conclusive on its own."
+        )
 
     if result.whatsapp and result.whatsapp.checked:
         if result.whatsapp.registered is True:
@@ -865,7 +920,6 @@ def _build_summary(result: PhoneResult) -> InvestigationSummary:
             + ("Basis: " + "; ".join(result.scam.fraud_score_basis) + "." if result.scam.fraud_score_basis else "")
         )
 
-    # confidence tier for the summary itself
     conf_score = result.confidence
     if result.correlation and result.correlation.confidence >= 40:
         conf_score = max(conf_score, result.correlation.confidence)
@@ -873,8 +927,8 @@ def _build_summary(result: PhoneResult) -> InvestigationSummary:
     confidence = "HIGH" if conf_score >= 70 else "MEDIUM" if conf_score >= 40 else "LOW"
     confidence_note = (
         "Confidence reflects how many independent signals agree (validity, carrier, "
-        "region, cross-correlation) — it is not a certainty score, and public phone "
-        "OSINT can and does return false positives/negatives."
+        "region, pattern analysis, cross-correlation) — it is not a certainty score, "
+        "and public phone OSINT can and does return false positives/negatives."
     )
 
     if not findings:
@@ -893,17 +947,6 @@ def _build_summary(result: PhoneResult) -> InvestigationSummary:
 # ══════════════════════════════════════════════════════════════
 
 def lookup(target: str, correlate: bool = True, check_whatsapp: bool = True) -> PhoneResult:
-    """
-    Full phone OSINT lookup.
-
-    Args:
-        target:          Raw phone string, e.g. "+919084302992"
-        correlate:       Whether to run cross-correlation.
-        check_whatsapp:  Whether to run the public WhatsApp presence check.
-
-    Returns:
-        PhoneResult dataclass (call .to_dict() for template rendering).
-    """
     result = PhoneResult(raw=target)
 
     if not _HAS_PHONENUMBERS:
@@ -927,6 +970,10 @@ def lookup(target: str, correlate: bool = True, check_whatsapp: bool = True) -> 
     result.international = phonenumbers.format_number(parsed, PhoneNumberFormat.INTERNATIONAL)
     result.e164 = phonenumbers.format_number(parsed, PhoneNumberFormat.E164)
     result.national = phonenumbers.format_number(parsed, PhoneNumberFormat.NATIONAL)
+    try:
+        result.rfc3966 = phonenumbers.format_number(parsed, PhoneNumberFormat.RFC3966)
+    except Exception:
+        result.rfc3966 = ""
     result.country_code = str(parsed.country_code)
 
     try:
@@ -969,6 +1016,10 @@ def lookup(target: str, correlate: bool = True, check_whatsapp: bool = True) -> 
 
     result.region = _get_region(parsed)
     result.timezones = _get_timezones(parsed)
+
+    # ── NEW: deep validity + pattern analysis ──
+    result.validity_detail = _build_validity_detail(parsed, target)
+    result.pattern_flags = _build_pattern_flags(result.national, result.country_code)
 
     if result.valid and check_whatsapp:
         result.whatsapp = _check_whatsapp(result.e164)
