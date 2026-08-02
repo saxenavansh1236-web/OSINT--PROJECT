@@ -1,8 +1,4 @@
-"""
-risk_score.py — Calculate a composite risk score (0-100) for a target
-Aggregates signals from all OSINT modules into a single risk profile.
-"""
-
+import re
 from dataclasses import dataclass, field, asdict
 from typing import Optional
 
@@ -10,8 +6,8 @@ from typing import Optional
 @dataclass
 class RiskFactor:
     name: str
-    score: int          # points added (0–100 scale before normalisation)
-    severity: str       # critical / high / medium / low / info
+    score: int
+    severity: str
     category: str
     detail: str = ""
 
@@ -19,10 +15,10 @@ class RiskFactor:
 @dataclass
 class RiskScore:
     target: str
-    total_score: int = 0         # 0-100
-    risk_level: str = "Low"      # Critical / High / Medium / Low / Info
-    factors: list = field(default_factory=list)      # RiskFactor dicts
-    categories: dict = field(default_factory=dict)   # category → score
+    total_score: int = 0
+    risk_level: str = "Low"
+    factors: list = field(default_factory=list)
+    categories: dict = field(default_factory=dict)
     recommendations: list = field(default_factory=list)
     summary: str = ""
     error: Optional[str] = None
@@ -31,13 +27,60 @@ class RiskScore:
         return asdict(self)
 
 
-# ── Risk level thresholds ─────────────────────────────────────────────────
 def _risk_level(score: int) -> str:
     if score >= 80: return "Critical"
     if score >= 60: return "High"
     if score >= 40: return "Medium"
     if score >= 20: return "Low"
     return "Minimal"
+
+
+# ── Target-type self-correction ──────────────────────────────────────────
+# Mirrors app.py's own _is_email/_is_phone/_is_domain logic, duplicated
+# here (rather than imported, to avoid a circular import with app.py) so
+# this module never trusts "a key happens to be present in scan_result" as
+# proof that a factor type is actually applicable. This is the same
+# self-correction principle already applied in leak_checker.py v3: a
+# domain-only signal (SPF/DMARC) must never be scored against a target
+# that isn't actually a domain or email, regardless of what stray keys
+# might be sitting in the scan_result dict.
+def _is_email(target: str) -> bool:
+    return "@" in target and "." in target.split("@")[-1]
+
+
+def _is_phone(target: str) -> bool:
+    cleaned = re.sub(r"[\s\-().]+", "", target)
+    return bool(re.match(r"^\+?\d{7,15}$", cleaned))
+
+
+def _is_domain(target: str) -> bool:
+    return "." in target and not _is_email(target) and not _is_phone(target)
+
+
+# Confidence multiplier: how much weight to give a finding based on how
+# solid the underlying match actually is. Unverified + non-email matches
+# (e.g. a broad domain-wide LeakCheck.io hit) are downweighted rather
+# than treated as equal to a confirmed HIBP breach on a real mailbox.
+def _confidence_multiplier(breach: dict) -> float:
+    verified = bool(breach.get("verified", False))
+    ttype = breach.get("target_type", "email")
+    if verified:
+        return 1.0
+    if ttype == "email":
+        return 0.8   # unverified but at least tied to a real mailbox
+    return 0.4       # unverified AND not a confirmed email match (domain/broad)
+
+
+# Ceiling on how many raw points the "breaches" category can contribute,
+# applied before the global 0-100 clamp. Prevents one noisy source (e.g.
+# 40+ broad domain-wide matches) from single-handedly maxing the score.
+_BREACH_CATEGORY_CAP = 45
+
+# Ceiling on how many raw points the "leaks" category (from the separate
+# result["leak"] key, distinct from result["breach"]) can contribute.
+# Kept lower than the breach cap since this data overlaps with — and is
+# often the exact same underlying signal as — the breaches category.
+_LEAK_CATEGORY_CAP = 15
 
 
 def calculate(target: str, scan_result: dict) -> RiskScore:
@@ -50,6 +93,13 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
     raw_score = 0
     cats = {}
 
+    # Determine the target's real type ONCE, up front, so every
+    # type-specific section below can gate on it explicitly instead of
+    # inferring type from "does this key happen to exist."
+    target_is_domain = _is_domain(target)
+    target_is_email = _is_email(target)
+    target_is_phone = _is_phone(target)
+
     def add(name, pts, severity, category, detail=""):
         nonlocal raw_score
         factors.append(asdict(RiskFactor(
@@ -59,16 +109,25 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
         raw_score += pts
         cats[category] = cats.get(category, 0) + pts
 
-    # ── Breaches ───────────────────────────────────────────────────────────
+    # ── Breaches (confidence-weighted, category-capped) ───────────────────
     breaches = scan_result.get("breach", [])
+    breach_category_total = 0
     if isinstance(breaches, list):
         sev_pts = {"critical": 15, "high": 10, "medium": 6, "low": 3, "info": 1}
         for b in breaches[:10]:
             if isinstance(b, dict):
                 sev = b.get("severity", "high")
-                pts = sev_pts.get(sev, 5)
-                add(f"Breach: {b.get('name', 'Unknown')}",
-                    pts, sev, "breaches",
+                base_pts = sev_pts.get(sev, 5)
+                weighted_pts = round(base_pts * _confidence_multiplier(b))
+
+                if breach_category_total >= _BREACH_CATEGORY_CAP:
+                    break  # category cap reached — stop adding more breach points
+                weighted_pts = min(weighted_pts, _BREACH_CATEGORY_CAP - breach_category_total)
+                breach_category_total += weighted_pts
+
+                confidence_note = "" if b.get("verified") else " (unverified match)"
+                add(f"Breach: {b.get('name', 'Unknown')}{confidence_note}",
+                    weighted_pts, sev, "breaches",
                     f"{b.get('records', 0):,} records exposed" if b.get("records") else "")
 
     # ── Threat intel ───────────────────────────────────────────────────────
@@ -87,9 +146,9 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
                 add(f"Threat: {label}", 8, "high", "threat_intel",
                     f.get("detail", ""))
 
-    # ── SSL issues ─────────────────────────────────────────────────────────
+    # ── SSL issues (domain-only — a phone/username/IP scan has no SSL) ────
     ssl = scan_result.get("ssl", {})
-    if isinstance(ssl, dict):
+    if target_is_domain and isinstance(ssl, dict):
         if ssl.get("error"):
             add("No SSL certificate", 15, "critical", "ssl",
                 "Site accessible over HTTP without encryption")
@@ -109,9 +168,9 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
         for w in (ssl.get("warnings") or []):
             add(f"SSL Warning: {w}", 4, "medium", "ssl")
 
-    # ── Open risky ports ──────────────────────────────────────────────────
+    # ── Open risky ports (domain/IP-only) ──────────────────────────────────
     port_scan = scan_result.get("port_scan", {})
-    if isinstance(port_scan, dict):
+    if target_is_domain and isinstance(port_scan, dict):
         risky_port_pts = {
             23: (15, "critical", "Telnet — cleartext protocol"),
             21: (10, "high",     "FTP — check for anonymous login"),
@@ -130,9 +189,9 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
                     add(f"Risky open port: {p}/{port_info.get('service', '?')}",
                         pts, sev, "open_ports", detail)
 
-    # ── Security headers ──────────────────────────────────────────────────
+    # ── Security headers (domain-only) ─────────────────────────────────────
     headers = scan_result.get("headers_analysis", {})
-    if isinstance(headers, dict):
+    if target_is_domain and isinstance(headers, dict):
         missing = headers.get("missing_headers", [])
         if isinstance(missing, list):
             high_missing = [h for h in missing
@@ -152,9 +211,15 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
                 4, "low", "security_headers",
                 "Server/framework version exposed in headers")
 
-    # ── DNS issues ─────────────────────────────────────────────────────────
+    # ── DNS issues (domain or email-domain-part ONLY) ──────────────────────
+    # This is the section that was previously firing for ANY target that
+    # happened to have a stray "dns" key in scan_result — including phone
+    # number scans, where SPF/DMARC are meaningless. Gated on
+    # target_is_domain / target_is_email now, exactly like leak_checker.py's
+    # v3 type self-correction: a signal that only makes sense for one
+    # target type can never silently apply to another.
     dns = scan_result.get("dns", {})
-    if isinstance(dns, dict):
+    if (target_is_domain or target_is_email) and isinstance(dns, dict):
         if dns.get("zone_transfer"):
             add("DNS zone transfer exposed", 18, "critical", "dns",
                 f"{len(dns['zone_transfer'])} records leaked")
@@ -170,27 +235,72 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
             add("DMARC policy: none", 6, "medium", "dns",
                 "No enforcement — spoofed emails not rejected")
 
-    # ── Leaks ──────────────────────────────────────────────────────────────
+    # ── Phone-specific risk factors (phone-only) ───────────────────────────
+    phone = scan_result.get("phone", {})
+    if target_is_phone and isinstance(phone, dict) and not phone.get("error"):
+        if not phone.get("valid"):
+            add("Phone number failed validity check", 10, "medium", "phone")
+
+        vd = phone.get("validity_detail", {})
+        if isinstance(vd, dict) and vd.get("is_possible") and not vd.get("is_valid"):
+            add("Phone: possible-but-invalid number", 6, "medium", "phone",
+                "Format-correct but fails carrier-range validation")
+
+        if phone.get("is_disposable"):
+            add("Phone: disposable/virtual-number carrier", 8, "medium", "phone")
+        elif phone.get("is_voip"):
+            add("Phone: VOIP carrier", 4, "low", "phone")
+
+        pf = phone.get("pattern_flags", {})
+        if isinstance(pf, dict):
+            if pf.get("is_sequential"):
+                add("Phone: sequential digit pattern", 5, "low", "phone")
+            if pf.get("is_repeated_digit"):
+                add("Phone: repeated-digit pattern", 4, "low", "phone")
+
+        scam = phone.get("scam", {})
+        if isinstance(scam, dict) and scam.get("fraud_score", "").lower() in ("medium", "high"):
+            pts = 12 if scam["fraud_score"].lower() == "high" else 6
+            tag = "provider" if scam.get("source") == "provider" else "heuristic"
+            add(f"Phone: {scam['fraud_score']} fraud signal ({tag})", pts, "high", "phone")
+
+    # ── Leaks (from leak_check_all — a SEPARATE scan-result key from
+    #    "breach" above, so this must stay independently capped or it
+    #    double-counts the same underlying findings when both fire) ──────
     leak = scan_result.get("leak", {})
     if isinstance(leak, dict) and not leak.get("error"):
-        total_leaks = leak.get("total_leaks", 0)
-        if total_leaks > 0:
-            pts = min(total_leaks * 3, 20)
-            add(f"{total_leaks} leak(s) found", pts, "high", "leaks")
-        sev_sum = leak.get("severity_summary", {})
-        if isinstance(sev_sum, dict) and sev_sum.get("critical", 0) > 0:
-            add(f"{sev_sum['critical']} critical leak(s)", 15, "critical", "leaks")
+        sev_sum = leak.get("severity_summary", {}) or {}
+        crit = sev_sum.get("critical", 0)
+        high = sev_sum.get("high", 0)
+        med  = sev_sum.get("medium", 0)
+        info = sev_sum.get("info", 0)
 
-    # ── Subdomains ─────────────────────────────────────────────────────────
+        # Weight by actual severity mix, not raw count. Previously this
+        # used total_leaks * 3 (capped at 20) regardless of whether those
+        # leaks were verified breaches or unverified domain-wide guesses
+        # — meaning 15 low-confidence "medium" leaks scored the same as
+        # 15 confirmed critical ones. Only critical/high leaks drive
+        # meaningful points now; medium/info (the domain-wide unverified
+        # case) contribute much less, matching the confidence weighting
+        # already applied to the "breach" category above.
+        weighted = (crit * 5) + (high * 3) + (med * 0.5) + (info * 0.1)
+        pts = min(round(weighted), _LEAK_CATEGORY_CAP)
+        total_leaks = leak.get("total_leaks", 0)
+        if pts > 0:
+            add(f"{total_leaks} leak(s) found "
+                f"({crit} critical, {high} high, {med} medium, {info} info)",
+                pts, "high" if (crit or high) else "medium", "leaks")
+
+    # ── Subdomains (domain-only) ────────────────────────────────────────────
     subs = scan_result.get("subs", [])
-    if isinstance(subs, list) and len(subs) > 20:
+    if target_is_domain and isinstance(subs, list) and len(subs) > 20:
         add(f"Large attack surface: {len(subs)} subdomains",
             min(len(subs) // 5, 10), "medium", "attack_surface",
             "More subdomains = more potential entry points")
 
-    # ── Tech stack exposure ───────────────────────────────────────────────
+    # ── Tech stack exposure (domain-only) ──────────────────────────────────
     tech = scan_result.get("tech", {})
-    if isinstance(tech, dict):
+    if target_is_domain and isinstance(tech, dict):
         outdated_signals = ["wordpress", "drupal 7", "joomla", "php/5", "php/7.0", "php/7.1"]
         for cat in ("cms", "server", "framework"):
             for item in (tech.get(cat) or []):
@@ -219,6 +329,8 @@ def calculate(target: str, scan_result: dict) -> RiskScore:
         recs.append("Set SPF to -all (hard fail) and DMARC policy to quarantine or reject.")
     if any(f["category"] == "threat_intel" for f in factors):
         recs.append("Investigate active threat listings; check for malware on hosted infrastructure.")
+    if any(f["category"] == "phone" for f in factors):
+        recs.append("Treat VOIP/disposable-carrier numbers with reduced trust; verify identity through a second channel before acting on requests from this number.")
     result.recommendations = recs
 
     result.summary = (
