@@ -29,7 +29,7 @@ A self-hosted Open Source Intelligence platform built with Flask. Scan domains, 
       │               │          │              │               │                 │
 ┌─────▼──────┐ ┌───────▼──────┐ ┌▼─────────────┐ ┌───▼───────┐ ┌─────▼──────┐ ┌────────▼────────┐
 │OSINT Modules│ │ Admin Panel  │ │Image Intel   │ │Case Mgmt  │ │Intelligence│ │  Scan Cache     │
-│(40+ modules)│ │ Dashboard    │ │Suite (20+    │ │Evidence   │ │Confidence/ │ │(in-memory /     │
+│(40+ modules)│ │ Dashboard    │ │Suite (24+    │ │Evidence   │ │Confidence/ │ │(in-memory /     │
 │             │ │Cases/Reports │ │features)     │ │Timeline   │ │Risk/Similar│ │ Redis optional) │
 └─────┬──────┘ └───────┬──────┘ └────┬─────────┘ └────┬──────┘ └─────┬──────┘ └─────────────────┘
       │                │             │             │              │
@@ -59,30 +59,26 @@ A self-hosted Open Source Intelligence platform built with Flask. Scan domains, 
 
 ---
 
-## Screenshots
-
-| Scanner | Dashboard |
-|---------|-----------|
-| ![Scan](docs/scan.png) | ![Dashboard](docs/dashboard.png) |
-
-| Investigation Graph | Risk Score / Identity Score |
-|------------|------------|
-| ![Graph](docs/graph.png) | ![Risk](docs/risk_score.png) |
-
-| PDF Report | Case Management |
-|------------|------------|
-| ![Report](docs/report.png) | ![Cases](docs/cases.png) |
-
-| Image Intelligence Suite | Threat Intel Grid (VT / AbuseIPDB / URLScan / OTX) |
-|-------------|------------------------------|
-| ![Image OSINT](docs/image_osint.png) | ![Threat Intel](docs/threat_intel.png) |
-
-> Add your screenshots to a `docs/` folder and update the paths above.
-
----
-
 ## What's New
 
+- **Three previously undocumented Image Intelligence features, now documented** — these already existed in the scan pipeline (`app.py`'s `image_osint()` route) but were missing from this README:
+  - **Timeline Extraction** (`modules/image_intel/timeline_extractor.py`) — derives created/modified dates, file age, and timezone context from EXIF data, with an honest "cannot determine if shared/re-saved" label rather than asserting a chain of custody it can't verify.
+  - **Camera Sensor Fingerprinting** (`modules/image_intel/camera_fingerprint.py`) — a noise-consistency heuristic that flags whether the sensor noise pattern across the frame looks uniform (consistent with a single, unedited capture) or inconsistent (possible splicing/editing), run directly against the file rather than metadata.
+  - **AI Summary** (`modules/image_intel/ai_summary.py`) — a one-click consolidated summary that reads from the *entire* `image_intel` dict (metadata risk, hidden data, camera fingerprint, objects, OCR, etc.) and must run last in the pipeline since every other card feeds it. This is distinct from the per-image **AI Image Caption** feature, which only describes visual contents.
+  - Total Image Intelligence feature count is corrected from "21+" to **24** to match what's actually wired up in `app.py`.
+- **`hidden_data_extractor` is now a required, non-defensive import** — unlike every other Image Intelligence module (which is imported inside a `try/except ImportError` so the app degrades gracefully), `modules.image_intel.hidden_data_extractor` is imported directly at the top of `app.py`. If this module or its dependencies are missing, the app will fail to start rather than disabling just that card. Documented under Known Limitations/Installation below — make sure this module's dependencies are present before deploying.
+- **Hidden Embedded Data Detection (Image Intelligence feature)** — some phone vendors (confirmed on OPPO/OnePlus devices) embed extra binary segments inside a JPEG's maker-note metadata that never show up when the photo is viewed normally — most notably `src.image`, a full secondary image that can be nearly half the file size and may show different content than the visible photo (e.g. a wider crop or an earlier/unprocessed frame), plus `rear.depth` (the portrait-mode depth map) and smaller watermark/mesh config blobs.
+  - **`modules/image_intel/hidden_data_extractor.py`** — parses the `JSONInfo` field ExifTool already extracts, identifies known segment types by name, and honestly labels anything not in its known list as `Unrecognized embedded segment` rather than guessing what it is. Segments under 1KB (near-certainly small config blobs, not visual content) are collapsed into a single summary line instead of cluttering the results with 8+ near-empty entries.
+  - **`modules/image_intel/metadata_risk.py`** — accepts the hidden-data finding as a second input and folds it into the overall 0–100 Metadata Risk score (capped contribution based on highest severity found, so multiple co-occurring segments from the same vendor format don't double-count), with a recommendation to re-export the photo through a basic editor to strip it before sharing.
+  - Surfaced as its own **"Hidden Embedded Data"** card in the Image Intelligence results grid, showing each segment's label, size, byte offset, and a plain-English explanation of what it does and doesn't reveal.
+- **Breach matching & risk scoring accuracy pass (v3)** — an audit of real scan output found that non-email targets (domains especially) were being run through the email breach-check pipeline regardless of type, because `app.py` calls a single `breach_check()` function for every scanned target. This produced badly misleading results — e.g. `google.com` scored **100/100 CRITICAL** off ~45 generic, unverified LeakCheck.io matches that merely mentioned the domain string, not confirmed breaches of any real mailbox.
+  - **`leak_checker.py`** — `check_email()`/`check_username()`/`check_domain()`/`check_phone()` now verify the target actually matches their claimed type and self-correct to the right checker instead of blindly proceeding. Domain-wide LeakCheck.io matches (inherently broad/unverified for that API) are now labeled `medium` severity instead of `high`, explicitly described as unverified, and capped to the top 15 results. The username checker also now skips bare-domain-looking strings (e.g. won't probe `google.com` against Snapchat/Twitter/etc. as if it were a username).
+  - **`risk_score.py`** — breach scoring is now confidence-weighted (a `verified: True` HaveIBeenPwned hit on a real email counts more than an unverified, non-email broad match) and the "breaches" category has a hard point cap, so one noisy source can no longer single-handedly push an otherwise-clean domain to a false CRITICAL score.
+- **Export/report data-integrity pass (v2)** — an internal audit found that every export path (scan PDF, case PDF, IOC/STIX/MISP, historical JSON report) was silently dropping or misreporting data relative to what the live UI shows. All four are now fixed and consistent with on-screen results:
+  - **Scan PDF (`/export`)** — previously only included 8 of the ~20+ fields in a scan result (target, ip, whois, subs, breach, username, ports, geo). Risk Score, Identity Score, AI Investigation Summary, Phone/Email Intelligence, DNS/SSL/Tech Stack, the Threat Intelligence Grid (VirusTotal/AbuseIPDB/OTX/URLScan), Dark Web/Paste Monitor findings, and Related Entities are now all included.
+  - **IOC export (`/export/ioc/stix`, `/export/ioc/misp`)** — was reading the risk score from a key (`total_score`) the risk module doesn't actually produce, so every exported IOC showed `risk_score: 0` regardless of the real finding. Risk-level casing (`"HIGH"` vs. the lookup table's `"High"`) also silently mismatched, causing HIGH/CRITICAL findings to export to MISP tagged as the *lowest* threat level. Both are now normalized and verified against realistic data before export.
+  - **Case PDF (`/cases/<id>/report`)** — didn't include the Investigation Intelligence panel (Confidence Score, Risk Analysis, Case Similarity) despite it being a headline per-case feature, and never included the investigator's actual written notes (only the evidence file list). Both are now in the report.
+  - **Historical report (`/admin/reports`, `/admin/reports/export`, `/admin/reports/export-pdf`)** — `breach_count` was hardcoded to `0` in every report with no indication that it wasn't actually tracked, which reads as "no breaches" rather than "not measured." The report now exposes `breach_tracking_available` so this is stated honestly instead of silently defaulting to a false zero. A single malformed case/alert/scheduled-target row previously zeroed out that entire analytics section instead of being skipped — per-row fault isolation now prevents that. The hourly-distribution chart previously ignored the selected reporting period and always used a fixed 30-day window; it now matches whatever period (7d/30d/90d) is selected.
 - **Image OSINT scans now visible on the Admin Dashboard** — image scans are audit-logged (`action="image_osint_scan"` in `AuditLog`) rather than written to the `History` table, since a file upload is a different kind of event than a target lookup. Previously the dashboard's `dashboard()` route computed `total_image_scans` but never rendered it in `admin_dashboard.html`, so image OSINT activity was invisible there even though it always showed correctly on `/history`. The dashboard now includes a dedicated **Image Scans** stat card and a **Recent Image OSINT Scans** table, both sourced from the same `AuditLog` query `/history` already used — no schema changes required.
 - **Public Account System** — the Scanner (`/`) and Image OSINT (`/image-osint`) are now gated behind a lightweight, self-serve user login (`/register`, `/login`, `/logout-user`). This is separate from the admin session used for the dashboard/cases/reports. Every scan is now tied to a session that must first authenticate as a registered user.
 - CAPTCHA now also protects registration and login, not just the admin panel and scan form.
@@ -128,6 +124,8 @@ A self-hosted Open Source Intelligence platform built with Flask. Scan domains, 
 ### Phone Intelligence
 - Carrier, region, line type (mobile/landline/VOIP/unknown), and timezone via `phonenumbers`
 - Confidence-scored validity with a visual bar
+- **Number Validity Detail** — separate `is_possible` (format-level) and `is_valid` (fully valid) checks with the raw `phonenumbers` validity type, so a number can be flagged as possible-but-not-valid rather than a single pass/fail
+- **Number Pattern Analysis** — flags sequential digits, repeated-digit patterns, and known telemarketing ranges as anomaly signals distinct from carrier/line-type checks
 - Phone-specific **risk score** (validity, line type, region, carrier, timezone coverage)
 - **Cross-correlation** against usernames and breach/leak data tied to the same number
 - **Scam / Fraud Intelligence** — fraud score, spam reports, robocall reports, last-reported date; honestly labeled `PROVIDER DATA` (with `SPAM_API_KEY`) or `HEURISTIC ESTIMATE` otherwise
@@ -141,9 +139,9 @@ A self-hosted Open Source Intelligence platform built with Flask. Scan domains, 
 - Cross-platform presence search using real verification signals (404 checks, error-string matching, title matching), grouped by category (Social, Video, Dev, Gaming, Creative, Professional, Forums)
 
 ### Universal
-- **Breach Check** — known data-breach exposure
-- **Leak Checker** — multi-source leak search across email, domain, phone, and username
-- **Risk Score** — 0–100 composite score with top risk factors (severity, points, category, detail) and actionable recommendations
+- **Breach Check** — known data-breach exposure. Automatically detects and self-corrects if a target doesn't match its assumed type (e.g. a domain passed to the email checker is routed to the domain-appropriate check instead), so a bare domain can't be misrun through the email breach pipeline.
+- **Leak Checker** — multi-source leak search across email, domain, phone, and username. Domain-wide matches are explicitly labeled as unverified/broad rather than presented with the same confidence as a verified email breach.
+- **Risk Score** — 0–100 composite score with top risk factors (severity, points, category, detail) and actionable recommendations. Breach-derived points are confidence-weighted (verified email breaches count more than unverified/broad matches) and capped per category, so noisy or low-confidence signals can't single-handedly push the score to Critical.
 - **Identity Confidence Score** — digital footprint strength, broken down by signal category with per-category point bars
 - **Investigation Timeline** — chronological, icon-tagged, severity-colored event feed across every data source
 
@@ -159,14 +157,14 @@ Everything below is derived purely from data the scan already collected — no e
 - **Entity Relationship Graph** (`/entity-graph`) — an expanded, standalone D3 force-directed graph that also folds in phone metadata, related entities, and IOC tags into one unified picture, distinct from the core `/graph` view above. Reads from the scan cache and falls back to an empty graph if no scan exists for the target.
 - **Cross-Case Correlation** (`/cases/<id>/correlation`) — compares the current target/case against every other case in the system, surfacing shared indicators (phone/email/domain/username/IP/breach) ranked by a weighted overlap score. Requires both the Case Management and Cross-Case Correlation modules to be installed.
 - **Social & Public Mention Search Suggestions** — clearly labeled search-suggestion links (Facebook, Instagram, LinkedIn, Telegram, Skype, GitHub, plus PDF/forum/resume/gov-doc dorks) with an on-screen disclaimer — no account existence is ever claimed without independent verification.
-- **IOC Enrichment & Export** — structured Indicator-of-Compromise record (type, value, risk score, confidence, tags) exportable as **STIX 2.1** (`/export/ioc/stix`) or **MISP**-compatible JSON (`/export/ioc/misp`). Values are pulled directly from the Risk/Identity scores so exports stay consistent with what's on screen. Both export routes read the last-scanned target from the session and the scan cache — run a scan first.
+- **IOC Enrichment & Export** — structured Indicator-of-Compromise record (type, value, risk score, confidence, tags) exportable as **STIX 2.1** (`/export/ioc/stix`) or **MISP**-compatible JSON (`/export/ioc/misp`). Values are pulled directly from the Risk/Identity scores so exports stay consistent with what's on screen — risk score and risk level are normalized before export so a HIGH/CRITICAL finding can never silently downgrade to a lower threat tier in the exported file. Both export routes read the last-scanned target from the session and the scan cache — run a scan first.
 - **Evidence Collection** — file uploads, one-click scan snapshots, and free-text investigator notes (`POST /cases/<id>/evidence/note`), all stored as timestamped evidence entries (`modules/investigations/evidence_store.py`).
 
 ---
 
 ### Image Intelligence Suite (`/image-osint`)
 
-A consolidated route combining forensic metadata extraction with a full image analysis pipeline. Requires a logged-in user account (same public login as the Scanner). Every feature beyond core EXIF extraction is imported defensively — a missing dependency or model disables just that card without breaking the scan.
+A consolidated route combining forensic metadata extraction with a full image analysis pipeline. Requires a logged-in user account (same public login as the Scanner). Every feature beyond core EXIF extraction and Hidden Embedded Data Detection is imported defensively — a missing dependency or model disables just that card without breaking the scan. (Hidden Embedded Data Detection is imported as a hard, non-optional dependency — see Known Limitations.)
 
 **Core — EXIF Metadata (ExifTool)**
 - Drag-and-drop or click-to-browse upload (JPG, PNG, GIF, WEBP, TIFF, BMP, HEIC — max 15MB)
@@ -174,27 +172,31 @@ A consolidated route combining forensic metadata extraction with a full image an
 - GPS detection with clear "not present" fallback when stripped
 - Full raw metadata table with copy/download-as-JSON actions
 
-**Analysis features (each isolated — a failure in one never blocks the others):**
+**Analysis features (each isolated — a failure in one never blocks the others), in scan-pipeline order:**
 1. **Image Hashing** — MD5, SHA256, pHash, dHash, aHash, wHash
 2. **Duplicate Image Detection** — exact (SHA256) + perceptual (pHash) matching against previously indexed uploads
 3. **QR / Barcode Detection** — decodes any embedded payload
 4. **OCR Text Extraction** — per-line confidence scores
 5. **Object Detection** — YOLOv11, per-object confidence
 6. **Face Detection** — detection only, never identification; resolution-proportional minimum face size + secondary eye-cascade verification pass to suppress Haar-cascade false positives
-7. **Face Attributes** — optional age/dominant-emotion estimate (DeepFace) + lightweight glasses/mask heuristic; framed as estimates, not verified facts
-8. **Landmark Detection** — honestly reports "unconfigured" without `GOOGLE_VISION_API_KEY`
-9. **Reverse Image Search** — labeled search-suggestion links (Google, Yandex, TinEye, Bing)
-10. **GPS Extraction** — feeds a dedicated map card from EXIF data
-11. **Metadata Privacy Risk Scoring** — flags how much personal/location data the file leaks
+7. **Landmark Detection** — honestly reports "unconfigured" without `GOOGLE_VISION_API_KEY`
+8. **Reverse Image Search** — labeled search-suggestion links (Google, Yandex, TinEye, Bing)
+9. **GPS Extraction** — feeds a dedicated map card from EXIF data
+10. **Hidden Embedded Data Detection** — parses vendor-proprietary binary segments hidden inside maker-note metadata (confirmed on OPPO/OnePlus, referenced by name/offset/length in the `JSONInfo` field) that never appear when the photo is viewed normally. Flags known segment types (e.g. `src.image` — a full embedded secondary image that may show different content than the visible photo; `rear.depth` — the portrait-mode depth map) by name, size, and byte offset, with a plain-English explanation of what each does and doesn't reveal. Unrecognized segment names are honestly labeled as such rather than guessed at, and segments under 1KB are collapsed into a single summary line to avoid cluttering the card with near-empty entries.
+11. **Metadata Privacy Risk Scoring** — flags how much personal/location data the file leaks, including a folded-in contribution from Hidden Embedded Data Detection when applicable
 12. **AI Image Caption** — natural-language description (requires local caption model)
 13. **AI-Generated Image Detection** — labeled `MODEL-BASED` or `HEURISTIC ESTIMATE`
 14. **ELA / Forgery Detection** — Error Level Analysis for localized editing/splicing artifacts
-15. **Image Quality Analysis** — sharpness/blur, brightness, contrast, noise estimate
-16. **Color Palette Extraction** — dominant colors, average color, grayscale detection
-17. **Logo & Brand Detection** — requires a configured detection backend
-18. **Vehicle Make/Model Detection** — top prediction + ranked alternatives
-19. **License Plate OCR** — requires a specialized OCR engine
-20. **Similarity Search** — ranked near-duplicate lookup across indexed images (distinct from #2)
+15. **Timeline Extraction** *(new)* — created/modified dates, file age, and timezone context derived from EXIF, honestly labeled where the platform cannot verify sharing/re-save history
+16. **Camera Sensor Fingerprinting** *(new)* — a noise-consistency heuristic run against the file itself (not metadata) to flag inconsistent sensor noise patterns that may indicate splicing or editing
+17. **Face Attributes** — optional age/dominant-emotion estimate (DeepFace) + lightweight glasses/mask heuristic; framed as estimates, not verified facts
+18. **Image Quality Analysis** — sharpness/blur, brightness, contrast, noise estimate
+19. **Color Palette Extraction** — dominant colors, average color, grayscale detection
+20. **Logo & Brand Detection** — requires a configured detection backend
+21. **Vehicle Make/Model Detection** — top prediction + ranked alternatives
+22. **License Plate OCR** — requires a specialized OCR engine
+23. **Similarity Search** — ranked near-duplicate lookup across indexed images (distinct from #2)
+24. **AI Summary** *(new)* — a one-click consolidated summary drawing on every card above (Investigation Summary, Risk, Camera Fingerprint, Hidden Metadata, Objects, OCR, and a recommendation); runs last in the pipeline since it depends on the rest
 
 **Hardening:**
 - Files deleted from disk immediately after processing (guaranteed `finally` cleanup)
@@ -208,7 +210,7 @@ A consolidated route combining forensic metadata extraction with a full image an
 ### Admin Panel
 - **Dashboard** — scan stats, 7-day activity chart, top targets, live security-event counters, a dedicated **Image Scans** stat card, and a **Recent Image OSINT Scans** table (sourced from `AuditLog`, separate from the `History`-backed scan stats and chart)
 - **History** — full scan log with CSV export (bulk or single row), plus a separate Image OSINT Scans section (also sourced from `AuditLog`)
-- **Reports** — historical analytics (7d/30d/90d), exportable as JSON or PDF
+- **Reports** — historical analytics (7d/30d/90d), exportable as JSON or PDF. A single malformed case/alert/scheduled-target record is skipped rather than blanking the entire section, and the hourly-activity chart always reflects the selected period rather than a fixed 30-day window.
 - **Case Management** — create/track investigation cases with notes, priorities, tags, an Evidence Center (files + notes + snapshots), a dedicated Timeline view, and a per-case Intelligence panel
 - **Scheduled Scans** — recurring target monitoring via APScheduler, with manual "run now" and enable/disable toggles
 - **Alert Engine** — SMTP email alerts on breach detection or target change, plus webhook support and a test-alert button
@@ -220,12 +222,15 @@ A consolidated route combining forensic metadata extraction with a full image an
 
 > **Data model note:** target scans (domain/IP/email/phone/username, run from `/`) are written to the `History` table and drive the dashboard's Total Scans / 7-Day Chart / Top Targets stats. Image OSINT scans (run from `/image-osint`) are a structurally different event — a file upload rather than a target lookup — and are written to `AuditLog` with `action="image_osint_scan"` instead. Both `/history` and `/dashboard` read from both tables to present a complete picture, but the two scan types are never merged into a single `History` row.
 
+> **Breach tracking note:** the `History` table does not currently store a per-scan breach count, so historical/aggregate breach totals across time periods are not available — only the most recent cached scan's breach list is. The Reports module surfaces this honestly via a `breach_tracking_available` flag rather than defaulting to a misleading `0`. To enable real historical breach totals, add a `breach_count` column to `History` and populate it alongside `flagged` when a scan completes.
+
 #### Investigation Intelligence (per-case, `/cases/<id>/intelligence`)
 - **Confidence Score** — how much corroborated, verifiable data exists on the target (WHOIS, DNS, SSL, geo resolution, multi-source corroboration, note activity)
 - **Risk Analysis** — LOW/MEDIUM/HIGH/CRITICAL, driven by dark-web flags, breach count, VT/OTX detections, AbuseIPDB score, risky ports, paste mentions, sensitive paths
 - **Case Similarity** — cross-references every other case by tag overlap, shared root domain/IP/WHOIS org/subdomains/breach sources
 - **Cross-Case Correlation** (`/cases/<id>/correlation`) — ranks other cases by concrete shared indicators (phone/email/domain/username/IP/breach) rather than similarity heuristics
 - **Notes Intelligence** — structural summary of investigator notes (count, contributing analysts, latest entry)
+- Also included in the per-case PDF export (`/cases/<id>/report`) — Confidence Score, Risk Analysis, Case Similarity, and the full investigator note history all render in the exported report, not just the web view.
 
 Every step degrades gracefully — a sparse or malformed scan still renders a conservative score instead of a 500 error.
 
@@ -266,7 +271,7 @@ Flask-Limiter, per-session (falls back to IP).
 Over-limit responses return HTTP **429** and are counted on the dashboard.
 
 ### Layer 2 — SQL Injection Protection
-A `before_request` hook inspects every query-string/form parameter on every request; the scan target additionally passes through `sanitise_target()`, raising `SQLiDetected` on a match. Detects `UNION SELECT`, comment sequences, boolean/time-based blind patterns, `EXEC()`/`xp_cmdshell`, `CHAR()`/hex encoding tricks, `LOAD_FILE()`/`INTO OUTFILE`, and forbidden shell characters (`; ` $ | < > \`). Blocked requests return HTTP **400**. (The app uses SQLAlchemy ORM throughout — this is defense-in-depth.)
+A `before_request` hook inspects every query-string/form parameter on every request; the scan target additionally passes through `sanitise_target()`, raising `SQLiDetected` on a match. Detects `UNION SELECT`, comment sequences, boolean/time-based blind patterns, `EXEC()`/`xp_cmdshell`, `CHAR()`/hex encoding tricks, `LOAD_FILE()`/`INTO OUTFILE`, and forbidden shell characters (`; ` $ | < > \`). Blocked requests return HTTP **400**. (The app uses SQLAlchemy ORM throughout — this is defense-in-depth, not the sole protection against injection.)
 
 ### Layer 3 — CAPTCHA
 - **hCaptcha** when `HCAPTCHA_SITE_KEY` / `HCAPTCHA_SECRET_KEY` are set
@@ -370,7 +375,7 @@ Leave unset (or comment it out) to keep using SQLite — this is the default and
 | `SPAM_API_KEY` | — | Optional licensed phone scam/fraud & spam-report provider (no free public API exists; feature honestly reports a heuristic estimate until configured) |
 | `GOOGLE_VISION_API_KEY` | — | Optional provider key for Landmark Detection (Image Intelligence Suite); honestly reports "unconfigured" until set |
 
-> Always set `SECRET_KEY` and `JWT_SECRET_KEY` to long random strings in production. Never leave them as the auto-generated defaults across restarts.
+> Always set `SECRET_KEY` and `JWT_SECRET_KEY` to long random strings in production. Never leave them as the auto-generated defaults across restarts — a default that's re-randomized on every process start will silently invalidate all active sessions and CAPTCHA tokens on every restart/deploy.
 > ```bash
 > python -c "import secrets; print(secrets.token_hex(32))"
 > ```
@@ -380,7 +385,7 @@ Leave unset (or comment it out) to keep using SQLite — this is the default and
 ### Security Checklist for Production
 
 - [ ] Set `FLASK_DEBUG=false`
-- [ ] Set a strong `SECRET_KEY` (32+ random bytes)
+- [ ] Set a strong `SECRET_KEY` (32+ random bytes) — do not rely on the auto-generated default
 - [ ] Set a strong `JWT_SECRET_KEY` (32+ random bytes)
 - [ ] Set `REDIS_URL` for shared caching/rate-limit storage
 - [ ] Add hCaptcha keys for stronger bot protection
@@ -393,6 +398,7 @@ Leave unset (or comment it out) to keep using SQLite — this is the default and
 - [ ] Confirm `exiftool` is installed on the host (`apt install exiftool`) before relying on Image Intelligence
 - [ ] Confirm `phonenumbers` is installed (`pip install phonenumbers`) before relying on Phone Intelligence
 - [ ] Confirm OCR/object-detection/face-detection model dependencies are installed if you want those Image Intelligence cards active
+- [ ] Confirm `modules/image_intel/hidden_data_extractor.py` and its dependencies are present — this import is **not** wrapped defensively, so a missing dependency here will prevent the app from starting, unlike every other optional Image Intelligence module
 - [ ] Periodically check `uploads/` is empty — it should always self-clean, but monitor it as a safety net
 
 ---
@@ -412,11 +418,11 @@ Leave unset (or comment it out) to keep using SQLite — this is the default and
 | PDF Generation | ReportLab |
 | Phone Intelligence | `phonenumbers` |
 | Image Metadata | ExifTool (system binary, via subprocess) |
-| Image Intelligence | Perceptual hashing, YOLOv11 (object detection), OCR engine, Haar-cascade face detection with eye-verification false-positive filtering, DeepFace (age/emotion), QR/barcode decoder |
+| Image Intelligence | Perceptual hashing, YOLOv11 (object detection), OCR engine, Haar-cascade face detection with eye-verification false-positive filtering, DeepFace (age/emotion), QR/barcode decoder, vendor maker-note segment parsing (hidden embedded data), noise-consistency camera sensor fingerprinting, EXIF-derived timeline extraction, consolidated cross-feature AI summary |
 | Threat Export | STIX 2.1 / MISP-compatible JSON (`modules/ioc_export.py`) |
 | Logging | Python `logging` with rotating file handlers |
 
-Every optional module is imported defensively at startup — if a module or its dependency is missing, the app disables just that feature and keeps running.
+Every optional module is imported defensively at startup — if a module or its dependency is missing, the app disables just that feature and keeps running. (Exception: `hidden_data_extractor`, imported as a hard dependency — see Known Limitations.)
 
 ---
 
@@ -454,7 +460,7 @@ brew install exiftool
 
 # Windows — download from https://exiftool.org and add to PATH
 ```
-If ExifTool isn't installed, `/image-osint` still loads but scans fail with a clear message. Individual analysis features degrade independently if their own dependency is missing.
+If ExifTool isn't installed, `/image-osint` still loads but scans fail with a clear message. Individual analysis features degrade independently if their own dependency is missing — with the exception of Hidden Embedded Data Detection (`hidden_data_extractor.py`), which is imported at the top of `app.py` outside the usual `try/except ImportError` pattern. Make sure this module and its dependencies are present, or the whole app will fail to start.
 
 ### 5. Configure environment variables
 Copy the block from [Environment Variables](#environment-variables) into a `.env` file at the project root.
@@ -524,9 +530,9 @@ Then go to `http://127.0.0.1:5000/admin` and log in. This is entirely separate f
 | `GET` | `/graph?target=<t>` | None | Investigation link graph data as JSON |
 | `GET` | `/entity-graph?target=<t>` | None | Entity relationship graph data as JSON |
 | `GET` | `/threat` | None | Dark web findings for latest scan |
-| `GET` | `/export` | None | Export the latest scan as a PDF report |
-| `GET` | `/export/ioc/stix` | Rate limited | Latest scan's IOC as a STIX 2.1 bundle |
-| `GET` | `/export/ioc/misp` | Rate limited | Latest scan's IOC as a MISP-compatible event |
+| `GET` | `/export` | None | Export the latest scan as a full PDF report (all sections — risk/identity scores, threat intel, phone/email intel, etc.) |
+| `GET` | `/export/ioc/stix` | Rate limited | Latest scan's IOC as a STIX 2.1 bundle, with normalized risk score/level |
+| `GET` | `/export/ioc/misp` | Rate limited | Latest scan's IOC as a MISP-compatible event, with normalized threat level |
 | `GET/POST` | `/` | Public session (rate limited) | Run a scan against a domain/IP/email/phone/username |
 | `GET/POST` | `/image-osint` | Public session (rate limited) | Upload an image, run the full Image Intelligence Suite |
 | `GET` | `/cases` | Admin session | List / filter / search cases |
@@ -535,7 +541,7 @@ Then go to `http://127.0.0.1:5000/admin` and log in. This is entirely separate f
 | `POST` | `/cases/<id>/note` | Admin session | Add a case note |
 | `POST` | `/cases/<id>/update` | Admin session | Update status/priority/description |
 | `GET` | `/cases/<id>/export?format=json\|text` | Admin session | Export the case |
-| `GET` | `/cases/<id>/report` | Admin session | Generate/download a per-case PDF report |
+| `GET` | `/cases/<id>/report` | Admin session | Generate/download a per-case PDF report, including Investigation Intelligence and full investigator notes |
 | `GET` | `/cases/<id>/evidence` | Admin session | Evidence Center |
 | `POST` | `/cases/<id>/evidence/upload` | Admin session (sensitive limit) | Upload a file as evidence |
 | `POST` | `/cases/<id>/evidence/note` | Admin session (sensitive limit) | Attach a free-text note as evidence |
@@ -554,7 +560,7 @@ Then go to `http://127.0.0.1:5000/admin` and log in. This is entirely separate f
 | `POST` | `/admin/alerts/save` | Admin session (admin role) | Save SMTP/webhook config |
 | `POST` | `/admin/alerts/test` | Admin session (sensitive limit) | Send a test alert |
 | `GET` | `/admin/reports` | Admin session | Historical analytics dashboard |
-| `GET` | `/admin/reports/export` | Admin session | Export historical report as JSON |
+| `GET` | `/admin/reports/export` | Admin session | Export historical report as JSON (includes `breach_tracking_available` and `data_limitations` fields) |
 | `GET` | `/admin/reports/export-pdf` | Admin session | Export historical report as PDF |
 | `GET` | `/admin/export-csv` | Admin session (analyst+) | Export full scan history as CSV |
 | `GET` | `/admin/export-csv/<id>` | Admin session | Export a single scan record as CSV |
@@ -594,7 +600,7 @@ OSINT-Project/
 │   ├── investigations/
 │   │   ├── evidence_store.py     # File + text evidence storage
 │   │   └── timeline_builder.py
-│   ├── image_intel/              # Image Intelligence Suite (20 features)
+│   ├── image_intel/              # Image Intelligence Suite (24 features)
 │   │   ├── image_hashing.py
 │   │   ├── duplicate_detection.py
 │   │   ├── qr_barcode.py
@@ -605,7 +611,8 @@ OSINT-Project/
 │   │   ├── landmark_detection.py
 │   │   ├── reverse_image_search.py
 │   │   ├── gps_extraction.py
-│   │   ├── metadata_risk.py
+│   │   ├── metadata_risk.py          # now also scores Hidden Embedded Data findings
+│   │   ├── hidden_data_extractor.py  # vendor maker-note segment detection (e.g. OPPO/OnePlus src.image, rear.depth) — hard dependency, imported non-defensively in app.py
 │   │   ├── caption.py
 │   │   ├── ai_generated_detection.py
 │   │   ├── forgery_detection.py
@@ -614,12 +621,15 @@ OSINT-Project/
 │   │   ├── logo_detection.py
 │   │   ├── vehicle_detection.py
 │   │   ├── license_plate_ocr.py
-│   │   └── similarity_search.py
+│   │   ├── similarity_search.py
+│   │   ├── timeline_extractor.py     # NEW — EXIF-derived created/modified/age/timezone
+│   │   ├── camera_fingerprint.py     # NEW — noise-consistency sensor fingerprinting
+│   │   └── ai_summary.py             # NEW — consolidated cross-feature summary (runs last)
 │   ├── abuse_lookup.py
 │   ├── alert_engine.py
 │   ├── archive_lookup.py
 │   ├── case_management.py
-│   ├── case_report_generator.py
+│   ├── case_report_generator.py     # v2: now includes Investigation Intelligence + investigator notes
 │   ├── certificate_history.py
 │   ├── cloud_detector.py
 │   ├── dark_monitor.py
@@ -634,17 +644,17 @@ OSINT-Project/
 │   ├── headers_analysis.py
 │   ├── identity_score.py
 │   ├── investigation_summary.py    # AI-style plain-English investigation summary
-│   ├── ioc_export.py               # STIX 2.1 / MISP IOC export
-│   ├── leak_checker.py
+│   ├── ioc_export.py               # STIX 2.1 / MISP IOC export — v2: normalized risk score/level
+│   ├── leak_checker.py               # v3: type self-correction, confidence-labeled domain matches
 │   ├── otx_lookup.py
 │   ├── paste_monitor.py
 │   ├── phone_lookup.py
 │   ├── port_scan.py
 │   ├── related_entities.py         # Emails/domains/usernames/case aggregation
-│   ├── report.py
-│   ├── report_dashboard.py
+│   ├── report.py                    # Scan PDF export — v2: full field coverage
+│   ├── report_dashboard.py          # Historical reports — v2: honest breach tracking, per-row fault isolation
 │   ├── reverse_ip.py
-│   ├── risk_score.py
+│   ├── risk_score.py                  # v3: confidence-weighted breach scoring, category cap
 │   ├── robots_scan.py
 │   ├── scheduled_scan.py
 │   ├── screenshot.py
@@ -698,7 +708,7 @@ OSINT-Project/
 |--------|-------|
 | Average scan time | 4–8 seconds |
 | Image metadata extraction | < 2 seconds (15s hard timeout) |
-| Full Image Intelligence Suite (all features) | Varies by feature; each isolated with independent error handling |
+| Full Image Intelligence Suite (all 24 features) | Varies by feature; each isolated with independent error handling |
 | Concurrent scans | 20+ |
 | Scan cache | 50 most recent targets (in-memory) |
 | Rate limit | 10 scans/min · 100/day per session/IP |
@@ -708,12 +718,20 @@ OSINT-Project/
 
 ## Known Limitations
 
+- **`hidden_data_extractor` is a hard dependency**, unlike every other Image Intelligence module. It's imported directly at the top of `app.py` (`from modules.image_intel import hidden_data_extractor`) rather than inside a `try/except ImportError` block, so if this module or its dependencies are missing, the entire app fails to start rather than just disabling that one card. Confirm it's present before deploying.
 - **Face Detection** uses OpenCV Haar cascades rather than a DNN-based detector. An eye-verification pass and resolution-proportional minimum face size cut false positives significantly, but Haar cascades can still misfire on unusual lighting, extreme angles, or heavily textured backgrounds.
 - **Face Attributes** (age/emotion) rely on a pretrained DeepFace model and should be treated as estimates, not verified facts. Glasses/mask flags are a lightweight heuristic and can misfire on low-resolution crops.
+- **Camera Sensor Fingerprinting** is a noise-consistency heuristic, not a forensic-grade PRNU (Photo Response Non-Uniformity) match against a known camera. It flags *inconsistency* within a single frame as a possible editing signal — it does not identify which camera captured the image or confirm authenticity.
+- **Timeline Extraction** can only report what EXIF data provides; it cannot verify whether a photo has been re-saved, re-uploaded, or passed through a platform that strips/rewrites timestamps, and labels this limitation honestly rather than asserting an unbroken chain of custody.
+- **AI Summary** is only as complete as the cards that ran before it — if an upstream feature (e.g. object detection) is disabled due to a missing dependency, the summary reflects that gap rather than fabricating a finding.
+- **Hidden Embedded Data Detection** only recognizes segment *names* it has been told about (currently tuned against OPPO/OnePlus's `JSONInfo` format). Other vendors may use a different metadata structure entirely, in which case this feature reports "not applicable to this file" rather than a false negative. Recognized-but-unlisted segment names are shown honestly as "unrecognized" rather than guessed at.
 - Several Image Intelligence cards (AI captioning, AI-generated detection, logo/vehicle/plate detection, landmark detection) require an external model or API key; without one they transparently report "unavailable" rather than a fabricated result.
 - Reverse Image Search and Social/Public Mention links are **search suggestions only** — the platform never claims a confirmed match without independent verification.
-- Public self-registration is open by default — anyone who can reach `/register` can create a scanner account. Disable or gate it in front of your reverse proxy if that's not desired.
+- Public self-registration is open by default — anyone who can reach `/register` can create a scanner account. Disable or gate it in front of your reverse proxy if that's not desired. Because scans consume third-party API quota (VT, AbuseIPDB, OTX, etc.), open registration is also a cost/abuse surface, not just a privacy one — consider email verification or an invite code if this matters for your deployment.
 - Image OSINT scans and target scans are tracked in two separate tables (`AuditLog` vs. `History`) by design, since they represent different kinds of events. Both `/history` and `/dashboard` merge them for display, but any custom reporting or export you build on top of the database directly needs to query both tables to get a full picture of scan activity.
+- **Historical breach totals** are not tracked — the `History` table records whether a scan was flagged, not how many breaches were found, so `/admin/reports` cannot show a true breach count over time. This is surfaced explicitly via `breach_tracking_available: false` rather than a misleading `0`. See the Admin Panel section above for how to enable it.
+- `SECRET_KEY` / `JWT_SECRET_KEY` default to a value randomly generated at process start if not set in the environment. This is fine for local testing but means every restart invalidates all sessions/tokens in that state — always set both explicitly before deploying anywhere persistent.
+- **Domain-wide breach matches remain inherently lower-confidence.** LeakCheck.io's public API isn't designed for domain-scoped lookups, so even after the v3 type-correction and confidence-weighting fixes, a "leak" surfaced for a bare domain means the string appeared somewhere in their index — not that a specific mailbox @domain was confirmed compromised. These are labeled `medium` severity and described as unverified, but they should still be treated as leads for manual verification, not confirmed findings, consistent with this platform's evidentiary standard.
 
 ---
 
@@ -723,10 +741,15 @@ This platform is built around one principle: **never present an unverified lead 
 
 - Username checks use real verification signals (HTTP 404s, page-specific error strings, title matching) — never a bare "got a 200 response" assumption.
 - Social profile links and reverse-phone mention links for platforms that can't be reliably auto-verified are explicitly labeled as **search suggestions** with an on-screen disclaimer.
-- The AI Investigation Summary only states what the underlying scan data actually supports, with a transparently-derived confidence level.
+- The AI Investigation Summary (target scans) and AI Summary (image scans) only state what the underlying data actually supports, with a transparently-derived confidence level.
 - Features requiring paid data (Phone Scam/Fraud Intelligence, Business Directory, Landmark Detection) clearly label results as `HEURISTIC ESTIMATE` or "unconfigured" when no provider is set.
 - Face Detection is detection-only — no facial recognition or identity matching against any database.
 - Reverse Image Search returns manual search-suggestion links, never a claimed match, until a public image URL provider is wired in.
+- **Camera Sensor Fingerprinting** reports a noise-consistency flag, never a confirmed forgery verdict or camera identification.
+- **Timeline Extraction** reports what EXIF states, never an asserted, verified chain of custody.
+- **Hidden Embedded Data Detection** identifies known vendor segment types by name and honestly labels anything outside its known list as "unrecognized" rather than asserting what it contains — the tool reports that a hidden secondary image *may* show different content than the visible photo, not that it definitely does, since that can only be confirmed by extracting and viewing the segment directly.
+- Exported reports (PDF, STIX, MISP, JSON) are held to the same standard as the UI: risk/confidence values are normalized before export so an exported finding can't silently understate what the live scan actually showed, and metrics that aren't really tracked (e.g. historical breach totals) are labeled as such rather than defaulted to a number that looks like a real result.
+- Breach/leak matches are weighted by how confident the underlying match actually is — a confirmed, verified breach on a real email is never scored or displayed identically to an unverified, broad domain-wide match. This is the same principle applied consistently: a low-confidence lead should never look like a confirmed finding, whether that's a social-profile link, an AI-generated summary, or a risk score.
 
 ---
 
