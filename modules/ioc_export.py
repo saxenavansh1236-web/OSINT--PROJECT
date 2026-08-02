@@ -3,6 +3,19 @@ ioc_export.py — Builds IOC (Indicator of Compromise) records from a scan
 result and exports them as STIX 2.1 bundle JSON or MISP-compatible event
 JSON. Pure data formatting — no external calls, no new API keys.
 
+v2 fixes:
+  • Risk score was always read from a "total_score" key that the risk
+    module doesn't actually produce (it produces "score" — same as what
+    the UI displays as "75/100"). Every IOC previously exported with
+    risk_score = 0. Now checks both key names, "score" first.
+  • Risk level / confidence values from the scan (e.g. "HIGH", "MEDIUM")
+    are upper-case, but the STIX/MISP lookup tables used Title-Case keys
+    ("High", "Medium"), so the lookup always silently missed and fell
+    back to the lowest threat level — a HIGH RISK target was exported to
+    MISP as the *lowest* threat tier. Lookups are now case-normalized.
+  • `to_ids` (whether MISP should treat this as actionable) depended on
+    the broken risk_score, so it was always False. Fixed by extension.
+
 Supports 5 IOC types:
   - ipv4-addr   (IP addresses)
   - domain-name (domains)
@@ -17,7 +30,7 @@ Usage (single-IOC, backward compatible):
     stix_json = to_stix(ioc)
     misp_json = to_misp(ioc)
 
-Usage (multi-IOC, new — pulls every distinct indicator out of one scan):
+Usage (multi-IOC — pulls every distinct indicator out of one scan):
     from ioc_export import build_iocs_multi, to_stix_bundle, to_misp_event_multi
     iocs = build_iocs_multi(target, result)
     stix_json = to_stix_bundle(iocs)
@@ -75,6 +88,49 @@ def _infer_ioc_type(target: str, result: dict) -> str:
 
 
 # ─────────────────────────────────────────────
+# Normalization helpers (the actual fix)
+# ─────────────────────────────────────────────
+
+def _extract_risk(result: dict) -> tuple[int, str]:
+    """
+    Reads risk score/level from result['risk_score'], trying every key
+    name the underlying module might actually use. Returns (score, level)
+    with level normalized to Title Case ('High', not 'HIGH' or 'high') so
+    it matches the STIX/MISP lookup tables below.
+    """
+    rs = result.get("risk_score")
+    if not isinstance(rs, dict):
+        return 0, "Low"
+
+    score = rs.get("score")
+    if score is None:
+        score = rs.get("total_score", 0)
+    try:
+        score = int(score)
+    except (TypeError, ValueError):
+        score = 0
+
+    level = rs.get("risk_level") or rs.get("level") or "Low"
+    level = str(level).strip().title()  # "HIGH" / "high" / "High" -> "High"
+    if level not in ("Low", "Medium", "High", "Critical"):
+        level = "Low"
+
+    return score, level
+
+
+def _extract_confidence(result: dict) -> str:
+    """Same normalization for identity confidence: -> 'HIGH'/'MEDIUM'/'LOW'/'MINIMAL'."""
+    ident = result.get("identity_score")
+    if not isinstance(ident, dict):
+        return "MINIMAL"
+    conf = ident.get("confidence") or ident.get("level") or "MINIMAL"
+    conf = str(conf).strip().upper()
+    if conf not in ("HIGH", "MEDIUM", "LOW", "MINIMAL"):
+        conf = "MINIMAL"
+    return conf
+
+
+# ─────────────────────────────────────────────
 # Single IOC record (primary target)
 # ─────────────────────────────────────────────
 
@@ -85,8 +141,8 @@ class IOCRecord:
     value:      str = ""
     hash_algo:  str | None = None  # md5 | sha1 | sha256, only set when ioc_type == "file-hash"
     risk_score: int = 0
-    risk_level: str = "Low"
-    confidence: str = "LOW"
+    risk_level: str = "Low"        # Low | Medium | High | Critical (Title Case — matches lookup tables)
+    confidence: str = "MINIMAL"    # HIGH | MEDIUM | LOW | MINIMAL (upper case — matches lookup tables)
     tags:       list[str] = field(default_factory=list)
     created:    str = field(default_factory=_now_iso)
     source:     str = "OSINT Investigation Platform"
@@ -114,14 +170,8 @@ def build_ioc(target: str, result: dict) -> IOCRecord:
     if ioc.ioc_type == "file-hash":
         ioc.hash_algo = _classify_hash(target)
 
-    rs = result.get("risk_score") or {}
-    if isinstance(rs, dict):
-        ioc.risk_score = rs.get("total_score", 0)
-        ioc.risk_level = rs.get("risk_level", "Low")
-
-    ident = result.get("identity_score") or {}
-    if isinstance(ident, dict):
-        ioc.confidence = ident.get("confidence", "MINIMAL")
+    ioc.risk_score, ioc.risk_level = _extract_risk(result)
+    ioc.confidence = _extract_confidence(result)
 
     tags = []
     dark = result.get("dark") or {}
@@ -162,12 +212,8 @@ def build_iocs_multi(target: str, result: dict) -> list[IOCRecord]:
     tooling with IPs, related domains, URLs, file hashes, and emails all
     at once. De-duplicated by (type, value).
     """
-    rs = result.get("risk_score") or {}
-    risk_score = rs.get("total_score", 0) if isinstance(rs, dict) else 0
-    risk_level = rs.get("risk_level", "Low") if isinstance(rs, dict) else "Low"
-
-    ident = result.get("identity_score") or {}
-    confidence = ident.get("confidence", "MINIMAL") if isinstance(ident, dict) else "MINIMAL"
+    risk_score, risk_level = _extract_risk(result)
+    confidence = _extract_confidence(result)
 
     base_tags = []
     dark = result.get("dark") or {}
@@ -283,11 +329,13 @@ _STIX_PATTERN_MAP = {
     "username":     lambda ioc: f"[user-account:account_login = '{ioc.value}']",
 }
 
+# Keys are UPPER CASE to match _extract_confidence()'s normalized output.
 _STIX_CONF_MAP = {"HIGH": 90, "MEDIUM": 60, "LOW": 30, "MINIMAL": 10}
 
 
 def _stix_indicator(ioc: IOCRecord) -> dict:
     pattern_fn = _STIX_PATTERN_MAP.get(ioc.ioc_type, lambda i: f"[artifact:payload_bin = '{i.value}']")
+    confidence_key = str(ioc.confidence).strip().upper()
     return {
         "type": "indicator",
         "spec_version": "2.1",
@@ -298,7 +346,7 @@ def _stix_indicator(ioc: IOCRecord) -> dict:
         "pattern": pattern_fn(ioc),
         "pattern_type": "stix",
         "valid_from": ioc.created,
-        "confidence": _STIX_CONF_MAP.get(ioc.confidence, 30),
+        "confidence": _STIX_CONF_MAP.get(confidence_key, 30),
         "labels": ioc.tags or ["osint-lead"],
         "description": f"Risk score {ioc.risk_score}/100 ({ioc.risk_level}). Source: {ioc.source}.",
     }
@@ -339,6 +387,7 @@ _MISP_TYPE_MAP = {
 
 _MISP_HASH_TYPE_MAP = {"md5": "md5", "sha1": "sha1", "sha256": "sha256"}
 
+# Keys are Title Case to match _extract_risk()'s normalized level output.
 _MISP_THREAT_MAP = {"Low": "4", "Medium": "3", "High": "2", "Critical": "1"}
 
 
@@ -358,12 +407,13 @@ def _misp_attribute(ioc: IOCRecord) -> dict:
 
 def to_misp(ioc: IOCRecord) -> str:
     """Single-indicator MISP event (backward compatible)."""
+    level_key = str(ioc.risk_level).strip().title()
     event = {
         "Event": {
             "uuid": ioc.ioc_id,
             "info": f"OSINT finding: {ioc.value}",
             "date": ioc.created[:10],
-            "threat_level_id": _MISP_THREAT_MAP.get(ioc.risk_level, "4"),
+            "threat_level_id": _MISP_THREAT_MAP.get(level_key, "4"),
             "analysis": "1",
             "distribution": "0",
             "Attribute": [_misp_attribute(ioc)],
@@ -380,6 +430,7 @@ def to_misp_event_multi(target: str, iocs: list[IOCRecord]) -> str:
 
     highest_risk = max((i.risk_score for i in iocs), default=0)
     risk_level = next((i.risk_level for i in iocs if i.risk_score == highest_risk), "Low")
+    level_key = str(risk_level).strip().title()
     all_tags = sorted(set(t for i in iocs for t in i.tags))
 
     event = {
@@ -387,7 +438,7 @@ def to_misp_event_multi(target: str, iocs: list[IOCRecord]) -> str:
             "uuid": str(uuid.uuid4()),
             "info": f"OSINT investigation: {target}",
             "date": iocs[0].created[:10],
-            "threat_level_id": _MISP_THREAT_MAP.get(risk_level, "4"),
+            "threat_level_id": _MISP_THREAT_MAP.get(level_key, "4"),
             "analysis": "1",
             "distribution": "0",
             "Attribute": [_misp_attribute(ioc) for ioc in iocs],
