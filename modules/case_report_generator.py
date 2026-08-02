@@ -1,22 +1,36 @@
 """
-case_report_generator.py — Phase 6: Case Report Generator
+case_report_generator.py — Case Report Generator (v2)
 -------------------------------------------------
 Builds a professional PDF report for a single case: summary, evidence
-list, timeline, and a conclusion section. Pulls from the modules this
-project already has — no new data model required.
+list, timeline, investigation intelligence, investigator notes, and a
+conclusion section.
+
+v2 fixes:
+  • The PDF previously skipped Investigation Intelligence entirely
+    (Confidence Score, Risk Analysis, Case Similarity) even though your
+    README lists /cases/<id>/intelligence as a headline feature. It's
+    now pulled in via modules.intelligence.confidence_score.analyze_case
+    and modules.intelligence.case_similarity.find_similar_cases, exactly
+    like the case_intelligence route in app.py does.
+  • The PDF previously only listed uploaded evidence *files* — the
+    investigator's actual written notes (get_notes) never appeared
+    anywhere in the exported report. A Notes section is now included.
+  • Both new sections degrade gracefully (missing module / analysis
+    failure -> a small note in the PDF, not a crash), matching this
+    project's existing error-handling style.
 
 DEPENDS ON (all already in this project per your app.py imports):
-    modules.case_management.get_case(case_id)
+    modules.case_management.get_case(case_id), get_notes(case_id), list_cases()
     modules.investigations.evidence_store.list_evidence(case_id), evidence_summary(case_id)
     modules.investigations.timeline_builder.build_case_timeline(case_id), timeline_summary(case_id)
+    modules.intelligence.confidence_score.analyze_case(case, notes)
+    modules.intelligence.case_similarity.find_similar_cases(case, all_cases)
 
 USAGE:
     from case_report_generator import generate_case_report
     path = generate_case_report(case_id, output_path="CASE_REPORT.pdf")
 
-FLASK ROUTE (add to app.py, near your other /cases/<int:case_id>/... routes):
-
-    from case_report_generator import generate_case_report
+Flask route (unchanged — same signature as before, no app.py changes needed):
 
     @app.route("/cases/<int:case_id>/report")
     @export_limit
@@ -41,9 +55,6 @@ FLASK ROUTE (add to app.py, near your other /cases/<int:case_id>/... routes):
             download_name=f"CASE_{case_id}_REPORT.pdf",
             mimetype="application/pdf",
         )
-
-Then link to it from case_detail.html, e.g.:
-    <a href="{{ url_for('case_report_pdf', case_id=case.id) }}">Export PDF Report</a>
 """
 
 import os
@@ -60,7 +71,7 @@ from reportlab.platypus import (
 )
 
 try:
-    from modules.case_management import get_case
+    from modules.case_management import get_case, get_notes, list_cases
     _HAS_CASE_MODULE = True
 except ImportError:
     _HAS_CASE_MODULE = False
@@ -76,6 +87,18 @@ try:
     _HAS_TIMELINE_MODULE = True
 except ImportError:
     _HAS_TIMELINE_MODULE = False
+
+try:
+    from modules.intelligence.confidence_score import analyze_case
+    _HAS_INTEL_MODULE = True
+except ImportError:
+    _HAS_INTEL_MODULE = False
+
+try:
+    from modules.intelligence.case_similarity import find_similar_cases, summarize_notes
+    _HAS_SIMILARITY_MODULE = True
+except ImportError:
+    _HAS_SIMILARITY_MODULE = False
 
 
 # ── Field helpers (cases/evidence/timeline items may be dicts or objects) ──
@@ -110,6 +133,13 @@ PRIORITY_COLORS = {
     "low":      colors.HexColor("#1e8449"),
 }
 
+RISK_LEVEL_COLORS = {
+    "critical": colors.HexColor("#c0392b"),
+    "high":     colors.HexColor("#d35400"),
+    "medium":   colors.HexColor("#b7950b"),
+    "low":      colors.HexColor("#1e8449"),
+}
+
 
 # ── Styles ───────────────────────────────────────────────────────────────
 
@@ -127,6 +157,10 @@ def _build_styles():
         name="SectionHeading", fontSize=14, leading=18, spaceBefore=18, spaceAfter=8,
         textColor=colors.HexColor("#1a1a1a"), fontName="Helvetica-Bold",
         borderWidth=0, borderPadding=0,
+    ))
+    styles.add(ParagraphStyle(
+        name="SubHeading", fontSize=11, leading=14, spaceBefore=10, spaceAfter=4,
+        textColor=colors.HexColor("#333333"), fontName="Helvetica-Bold",
     ))
     styles.add(ParagraphStyle(
         name="Body", fontSize=10, leading=15,
@@ -147,6 +181,9 @@ def _build_styles():
     styles.add(ParagraphStyle(
         name="EmptyNote", fontSize=9, leading=13,
         textColor=colors.HexColor("#999999"), fontName="Helvetica-Oblique",
+    ))
+    styles.add(ParagraphStyle(
+        name="ScoreBig", fontSize=20, leading=24, fontName="Helvetica-Bold",
     ))
     return styles
 
@@ -205,6 +242,102 @@ def _summary_section(case, styles):
     return flow
 
 
+def _intelligence_section(case, notes, all_cases, styles):
+    """
+    NEW SECTION. Mirrors the /cases/<id>/intelligence route: Confidence
+    Score, Risk Analysis, and Case Similarity. Previously missing from
+    the PDF entirely.
+    """
+    flow = [Paragraph("Investigation Intelligence", styles["SectionHeading"])]
+
+    if not _HAS_INTEL_MODULE:
+        flow.append(Paragraph("Investigation Intelligence module not available.", styles["EmptyNote"]))
+        return flow
+
+    try:
+        intel = analyze_case(case, notes)
+        intel_dict = intel.to_dict() if hasattr(intel, "to_dict") else intel
+    except Exception as e:
+        flow.append(Paragraph(f"Could not compute intelligence: {e}", styles["EmptyNote"]))
+        return flow
+
+    confidence = intel_dict.get("confidence", "—")
+    risk_level = str(intel_dict.get("risk_level", "—"))
+    risk_score = intel_dict.get("risk_score", "—")
+    color = RISK_LEVEL_COLORS.get(risk_level.lower(), colors.HexColor("#333333"))
+
+    score_row = Table([[
+        Paragraph(f"<font color='{color.hexval()}'>{risk_score}</font>"
+                  f"<font size='9' color='#888888'> /100</font>", styles["ScoreBig"]),
+        Paragraph(f"<font color='{color.hexval()}'><b>{risk_level.upper()}</b></font>"
+                  f"<br/><font size='8' color='#888888'>Confidence: {confidence}</font>",
+                  styles["Body"]),
+    ]], colWidths=[1.8 * inch, 4.2 * inch])
+    score_row.setStyle(TableStyle([
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#f7f7f7")),
+        ("PADDING", (0, 0), (-1, -1), 10),
+    ]))
+    flow.append(score_row)
+    flow.append(Spacer(1, 8))
+
+    signals = intel_dict.get("signals") or {}
+    if isinstance(signals, dict) and signals:
+        flow.append(Paragraph("Signals", styles["SubHeading"]))
+        rows = [[Paragraph(str(k).replace("_", " ").title(), styles["MetaLabel"]),
+                 Paragraph(str(v), styles["MetaValue"])] for k, v in signals.items()]
+        tbl = Table(rows, colWidths=[2.5 * inch, 3.5 * inch])
+        tbl.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.HexColor("#eeeeee")),
+        ]))
+        flow.append(tbl)
+
+    warnings = intel_dict.get("warnings") or []
+    if warnings:
+        flow.append(Spacer(1, 6))
+        flow.append(Paragraph("Warnings", styles["SubHeading"]))
+        for w in warnings:
+            flow.append(Paragraph(f"⚠ {w}", styles["Body"]))
+
+    # Case Similarity
+    if _HAS_SIMILARITY_MODULE and all_cases is not None:
+        try:
+            similar = find_similar_cases(case, all_cases)
+            similar_dicts = [c.to_dict() if hasattr(c, "to_dict") else c for c in similar]
+        except Exception as e:
+            similar_dicts = []
+            flow.append(Paragraph(f"Could not compute case similarity: {e}", styles["EmptyNote"]))
+
+        if similar_dicts:
+            flow.append(Spacer(1, 8))
+            flow.append(Paragraph("Similar Cases", styles["SubHeading"]))
+            header = ["Case", "Match Reason", "Score"]
+            rows = [header]
+            for sc in similar_dicts[:8]:
+                rows.append([
+                    f"#{sc.get('id', sc.get('case_id', '—'))} {sc.get('title', '')}",
+                    ", ".join(sc.get("shared", sc.get("reasons", []))) or "—",
+                    str(sc.get("score", sc.get("similarity", "—"))),
+                ])
+            tbl = Table(rows, colWidths=[3 * inch, 2.5 * inch, 0.8 * inch])
+            tbl.setStyle(TableStyle([
+                ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1a1a1a")),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f7f7f7")]),
+                ("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#e0e0e0")),
+                ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                ("TOPPADDING", (0, 0), (-1, -1), 5),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ]))
+            flow.append(tbl)
+
+    return flow
+
+
 def _evidence_section(case_id, styles):
     flow = [Paragraph("Evidence", styles["SectionHeading"])]
 
@@ -252,6 +385,48 @@ def _evidence_section(case_id, styles):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     flow.append(table)
+    return flow
+
+
+def _notes_section(notes, styles):
+    """
+    NEW SECTION. Previously the investigator's actual written notes never
+    appeared anywhere in the exported PDF — only uploaded evidence files
+    did. This renders the note text itself, newest first.
+    """
+    flow = [Paragraph("Investigator Notes", styles["SectionHeading"])]
+
+    if not notes:
+        flow.append(Paragraph("No investigator notes recorded for this case.", styles["EmptyNote"]))
+        return flow
+
+    try:
+        ordered = sorted(
+            notes,
+            key=lambda n: _field(n, "created_at", "timestamp", default="") or "",
+            reverse=True,
+        )
+    except Exception:
+        ordered = notes
+
+    for note in ordered:
+        author = _field(note, "author", "created_by", default="Unknown")
+        when = _fmt_dt(_field(note, "created_at", "timestamp"))
+        content = _field(note, "content", "text", default="")
+        row = Table(
+            [[Paragraph(f"<b>{author}</b><br/><font size='7' color='#888888'>{when}</font>",
+                        styles["MetaValue"]),
+              Paragraph(str(content), styles["Body"])]],
+            colWidths=[1.3 * inch, 4.7 * inch],
+        )
+        row.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+            ("LINEBELOW", (0, 0), (-1, -1), 0.3, colors.HexColor("#eeeeee")),
+        ]))
+        flow.append(row)
+
     return flow
 
 
@@ -326,6 +501,16 @@ def generate_case_report(case_id, output_path="CASE_REPORT.pdf", conclusion=None
     if not case:
         raise ValueError(f"Case {case_id} not found")
 
+    try:
+        notes = get_notes(case_id) or []
+    except Exception:
+        notes = []
+
+    try:
+        all_cases = list_cases()
+    except Exception:
+        all_cases = None
+
     styles = _build_styles()
     doc = SimpleDocTemplate(
         output_path, pagesize=letter,
@@ -346,7 +531,11 @@ def generate_case_report(case_id, output_path="CASE_REPORT.pdf", conclusion=None
 
     story += _summary_section(case, styles)
     story.append(Spacer(1, 6))
+    story += _intelligence_section(case, notes, all_cases, styles)
+    story.append(Spacer(1, 6))
     story += _evidence_section(case_id, styles)
+    story.append(Spacer(1, 6))
+    story += _notes_section(notes, styles)
     story.append(Spacer(1, 6))
     story += _timeline_section(case_id, styles)
     story.append(Spacer(1, 6))
