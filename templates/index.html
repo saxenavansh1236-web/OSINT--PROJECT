@@ -797,212 +797,253 @@
         </div>
 
         {# ══ PHONE INTELLIGENCE ══ #}
-        {% set ph = result.get("phone") %}
-        {% if ph and ph is mapping and not ph.get("error") %}
-        <div class="card">
-            <div class="card-header">
-                <span class="card-icon">📱</span>
-                <span class="card-title">Phone Intelligence</span>
-                <span class="card-count {% if not ph.get('valid') %}red{% endif %}">
-                    {% if ph.get('valid') %}✓ Valid{% else %}✗ Invalid{% endif %}
+{% set ph = result.get("phone") %}
+{% if ph and ph is mapping and not ph.get("error") %}
+<div class="card">
+    <div class="card-header">
+        <span class="card-icon">📱</span>
+        <span class="card-title">Phone Intelligence</span>
+        <span class="card-count {% if not ph.get('valid') %}red{% endif %}">
+            {% if ph.get('valid') %}✓ Valid{% else %}✗ Invalid{% endif %}
+        </span>
+    </div>
+    <div class="card-body">
+        <div class="ip-display" style="font-size:20px;margin-bottom:4px">
+            {{ ph.get("international", ph.get("raw", "—")) }}
+        </div>
+        <span class="phone-type type-{{ ph.get('line_type','unknown') }}" style="margin-bottom:14px;display:inline-block">
+            {{ ph.get("line_type","unknown") | upper }}
+        </span>
+        {% set conf = ph.get("confidence", 0) %}
+        <div style="margin-bottom:14px">
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">
+                <span>CONFIDENCE</span>
+                <span style="color:{% if conf >= 70 %}var(--green){% elif conf >= 40 %}var(--yellow){% else %}var(--red){% endif %}">
+                    {{ conf }}% · {{ ph.get("confidence_label","LOW") }}
                 </span>
             </div>
-            <div class="card-body">
-                <div class="ip-display" style="font-size:20px;margin-bottom:4px">
-                    {{ ph.get("international", ph.get("raw", "—")) }}
-                </div>
-                <span class="phone-type type-{{ ph.get('line_type','unknown') }}" style="margin-bottom:14px;display:inline-block">
-                    {{ ph.get("line_type","unknown") | upper }}
-                </span>
-                {% set conf = ph.get("confidence", 0) %}
-                <div style="margin-bottom:14px">
-                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);letter-spacing:1px;margin-bottom:4px">
-                        <span>CONFIDENCE</span>
-                        <span style="color:{% if conf >= 70 %}var(--green){% elif conf >= 40 %}var(--yellow){% else %}var(--red){% endif %}">
-                            {{ conf }}% · {{ ph.get("confidence_label","LOW") }}
-                        </span>
-                    </div>
-                    <div class="score-bar">
-                        <div class="score-fill" style="width:{{ conf }}%;background:{% if conf >= 70 %}var(--green){% elif conf >= 40 %}var(--yellow){% else %}var(--red){% endif %}"></div>
-                    </div>
-                </div>
-                <div class="kv-row"><span class="kv-key">Country</span><span class="kv-val">{{ ph.get("country_name","—") }}</span></div>
-                <div class="kv-row"><span class="kv-key">Region</span><span class="kv-val">{{ ph.get("region","—") or "—" }}</span></div>
-                <div class="kv-row"><span class="kv-key">Carrier</span><span class="kv-val">{{ ph.get("carrier_name","—") or "—" }}</span></div>
-                <div class="kv-row"><span class="kv-key">E.164</span><span class="kv-val">{{ ph.get("e164","—") }}</span></div>
-                <div class="kv-row"><span class="kv-key">National</span><span class="kv-val">{{ ph.get("national","—") }}</span></div>
-                {% if ph.get("timezones") %}
-                <div class="kv-row"><span class="kv-key">Timezone</span><span class="kv-val">{{ ph.get("timezones", [])[0] }}</span></div>
-                {% endif %}
-                {% set risk = ph.get("risk") %}
-                {% if risk and risk is mapping %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
-                        <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">Phone Risk</span>
-                        <span class="breach-tag {% if risk.get('level') == 'LOW' %}breach-sev-info{% elif risk.get('level') == 'MEDIUM' %}breach-sev-medium{% else %}breach-sev-high{% endif %}">
-                            {{ risk.get("level","?") }}
-                        </span>
-                        <span style="color:var(--muted);font-size:10px">{{ risk.get("score",0) }}/100</span>
-                    </div>
-                    {% for reason in risk.get("reasons", []) %}
-                    <div style="font-size:11px;padding:2px 0;color:{% if reason.startswith('✓') %}var(--green){% elif reason.startswith('⚠') %}var(--yellow){% else %}var(--red){% endif %}">
-                        {{ reason }}
-                    </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
-                {% set corr = ph.get("correlation") %}
-                {% if corr and corr is mapping %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Cross-Correlation</div>
-                    <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px">
-                        <span>CORRELATION CONFIDENCE</span>
-                        <span style="color:var(--green)">{{ corr.get("confidence",0) }}% · {{ corr.get("confidence_label","LOW") }}</span>
-                    </div>
-                    <div class="score-bar" style="margin-bottom:10px">
-                        <div class="score-fill" style="width:{{ corr.get('confidence',0) }}%;background:var(--green)"></div>
-                    </div>
-                    {% if corr.get("usernames") %}
-                    <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin:8px 0 4px">USERNAMES ({{ corr.get("usernames")|length }} found)</div>
-                    {% for u in corr.get("usernames",[])[:4] %}
-                    <div style="font-size:11px;color:var(--text);padding:2px 0">
-                        {{ u.get("name","?") if u is mapping else u }}
-                        {% if u is mapping and u.get("url") %} — <a href="{{ u.get('url') }}" target="_blank" style="color:var(--blue);font-size:10px">↗</a>{% endif %}
-                    </div>
-                    {% endfor %}
-                    {% endif %}
-                    {% if corr.get("leaks") %}
-                    <div style="font-size:10px;color:var(--red);letter-spacing:1px;margin:8px 0 4px">⚠ LEAKS ({{ corr.get("leaks")|length }} found)</div>
-                    {% for lk in corr.get("leaks",[])[:3] %}
-                    <div style="font-size:11px;color:var(--red);padding:2px 0">{{ lk.get("breach_name") or lk.get("name","?") if lk is mapping else lk }}</div>
-                    {% endfor %}
-                    {% endif %}
-                    {% if not corr.get("usernames") and not corr.get("leaks") %}
-                    <p class="no-data" style="color:var(--green)">✓ No cross-correlations found.</p>
-                    {% endif %}
-                </div>
-                {% endif %}
-
-                {# ══ SCAM / FRAUD INTELLIGENCE ══ #}
-                {% set scam = ph.get("scam") %}
-                {% if scam and scam.get("available") %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
-                        <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">Scam / Fraud Intelligence</span>
-                        <span class="tag-pill" style="{% if scam.get('source') == 'provider' %}color:var(--green);background:rgba(0,255,136,0.1){% else %}color:var(--yellow);background:rgba(255,170,0,0.1){% endif %}">
-                            {{ "PROVIDER DATA" if scam.get("source") == "provider" else "HEURISTIC ESTIMATE" }}
-                        </span>
-                    </div>
-                    {% if scam.get("fraud_score") %}
-                    <div class="kv-row">
-                        <span class="kv-key">Fraud Score</span>
-                        <span class="kv-val" style="color:{% if scam.get('fraud_score') == 'High' %}var(--red){% elif scam.get('fraud_score') == 'Medium' %}var(--yellow){% else %}var(--green){% endif %}">
-                            {{ scam.get("fraud_score") }}
-                        </span>
-                    </div>
-                    {% endif %}
-                    {% if scam.get("spam_reports") is not none %}<div class="kv-row"><span class="kv-key">Spam Reports</span><span class="kv-val">{{ scam.get("spam_reports") }}</span></div>{% endif %}
-                    {% if scam.get("robocall_reports") is not none %}<div class="kv-row"><span class="kv-key">Robocall Reports</span><span class="kv-val">{{ scam.get("robocall_reports") }}</span></div>{% endif %}
-                    {% if scam.get("last_reported") %}<div class="kv-row"><span class="kv-key">Last Reported</span><span class="kv-val">{{ scam.get("last_reported") }}</span></div>{% endif %}
-                    {% if scam.get("fraud_score_basis") %}
-                    <div style="margin-top:6px">
-                        {% for b in scam.get("fraud_score_basis",[]) %}
-                        <div style="font-size:10px;color:var(--muted);padding:2px 0">• {{ b }}</div>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-                    <div class="api-error-note" style="margin-top:8px">ℹ {{ scam.get("note") }}</div>
-                </div>
-                {% elif scam %}
-                <div class="api-error-note" style="margin-top:10px">ℹ {{ scam.get("note") }}</div>
-                {% endif %}
-
-                {# ══ VOIP / VIRTUAL NUMBER CHECK ══ #}
-                {% set voip = ph.get("voip") %}
-                {% if voip and voip.get("available") %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">VOIP / Virtual Number Check</div>
-                    <span class="tag-pill" style="{% if voip.get('is_voip') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--green);background:rgba(0,255,136,0.1){% endif %}">
-                        {{ "LIKELY VOIP" if voip.get("is_voip") else "NOT VOIP" }} · {{ voip.get("confidence","low") | upper }} CONFIDENCE
-                    </span>
-                    {% if voip.get("matched_provider") %}<div style="font-size:10px;color:var(--muted);margin-top:6px">Matched provider: {{ voip.get("matched_provider") }}</div>{% endif %}
-                    <div style="font-size:10px;color:var(--muted);margin-top:4px">{{ voip.get("note","") }}</div>
-                </div>
-                {% endif %}
-
-                {# ══ PORTING HISTORY ══ #}
-                {% set porting = ph.get("porting") %}
-                {% if porting and porting.get("available") %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Porting History</div>
-                    <span class="tag-pill" style="{% if porting.get('ported') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--green);background:rgba(0,255,136,0.1){% endif %}">
-                        {{ "PORTED" if porting.get("ported") else "NOT PORTED" }}
-                    </span>
-                    <div style="font-size:10px;color:var(--muted);margin-top:6px">{{ porting.get("note","") }}</div>
-                </div>
-                {% elif porting %}
-                <div class="api-error-note" style="margin-top:10px">ℹ {{ porting.get("note","Porting history unavailable.") }}</div>
-                {% endif %}
-
-                {# ══ BUSINESS DIRECTORY (only renders if a real match exists) ══ #}
-                {% set biz = ph.get("business") %}
-                {% if biz and biz.get("available") %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Business Directory</div>
-                    <div class="kv-row"><span class="kv-key">Name</span><span class="kv-val">{{ biz.get("name","—") }}</span></div>
-                    <div class="kv-row"><span class="kv-key">Type</span><span class="kv-val">{{ biz.get("type","—") }}</span></div>
-                    <div style="font-size:10px;color:var(--muted);margin-top:6px">Source: {{ biz.get("source","—") }}</div>
-                </div>
-                {% endif %}
-
-                {# ══ REVERSE PHONE OSINT — PUBLIC MENTION SEARCH SUGGESTIONS ══ #}
-                {% set mentions = ph.get("public_mentions") %}
-                {% if mentions %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Reverse Phone OSINT</div>
-                    <div class="api-error-note" style="margin-bottom:8px">ℹ These are unverified search links, not confirmed matches. Open each and check manually.</div>
-                    {% set ns2 = namespace(last_cat="") %}
-                    {% for m in mentions %}
-                        {% if m.get("category") != ns2.last_cat %}
-                        <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px">{{ m.get("category") }}</div>
-                        {% set ns2.last_cat = m.get("category") %}
-                        {% endif %}
-                        <div class="dork-item">
-                            <span class="dork-desc">{{ m.get("platform","?") }}</span>
-                            <a href="{{ m.get('url') }}" target="_blank" rel="noopener" class="dork-link">Search ↗</a>
-                        </div>
-                    {% endfor %}
-                </div>
-                {% endif %}
-
-                {# ══ INVESTIGATION SUMMARY ══ #}
-                {% set psum = ph.get("summary") %}
-                {% if psum and psum.get("paragraphs") %}
-                <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
-                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-                        <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">🧠 Investigation Summary</span>
-                        <span class="tag-pill" style="{% if psum.get('confidence') == 'HIGH' %}color:var(--green);background:rgba(0,255,136,0.1){% elif psum.get('confidence') == 'MEDIUM' %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--muted);background:rgba(85,85,85,0.12){% endif %}">
-                            {{ psum.get("confidence") }} CONFIDENCE
-                        </span>
-                    </div>
-                    {% for p in psum.get("paragraphs",[]) %}
-                    <p style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:8px">{{ p }}</p>
-                    {% endfor %}
-                    {% if psum.get("key_findings") %}
-                    <div style="margin-top:8px">
-                        {% for f in psum.get("key_findings",[]) %}
-                        <div style="font-size:11px;color:var(--text);padding:2px 0">▸ {{ f }}</div>
-                        {% endfor %}
-                    </div>
-                    {% endif %}
-                    {% if psum.get("confidence_note") %}
-                    <div style="font-size:10px;color:var(--muted);margin-top:8px">{{ psum.get("confidence_note") }}</div>
-                    {% endif %}
-                </div>
-                {% endif %}
+            <div class="score-bar">
+                <div class="score-fill" style="width:{{ conf }}%;background:{% if conf >= 70 %}var(--green){% elif conf >= 40 %}var(--yellow){% else %}var(--red){% endif %}"></div>
             </div>
         </div>
+        <div class="kv-row"><span class="kv-key">Country</span><span class="kv-val">{{ ph.get("country_name","—") }}</span></div>
+        <div class="kv-row"><span class="kv-key">Region</span><span class="kv-val">{{ ph.get("region","—") or "—" }}</span></div>
+        <div class="kv-row"><span class="kv-key">Carrier</span><span class="kv-val">{{ ph.get("carrier_name","—") or "—" }}</span></div>
+        <div class="kv-row"><span class="kv-key">E.164</span><span class="kv-val">{{ ph.get("e164","—") }}</span></div>
+        <div class="kv-row"><span class="kv-key">National</span><span class="kv-val">{{ ph.get("national","—") }}</span></div>
+        {% if ph.get("rfc3966") %}
+        <div class="kv-row"><span class="kv-key">RFC3966</span><span class="kv-val" style="font-size:10px">{{ ph.get("rfc3966") }}</span></div>
         {% endif %}
+        {% if ph.get("timezones") %}
+        <div class="kv-row"><span class="kv-key">Timezone</span><span class="kv-val">{{ ph.get("timezones", [])[0] }}</span></div>
+        {% endif %}
+
+        {# ══ NEW: NUMBER VALIDITY DETAIL ══ #}
+        {% set vd = ph.get("validity_detail") %}
+        {% if vd and vd is mapping %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Number Validity Detail</div>
+            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+                <span class="tag-pill" style="{% if vd.get('is_possible') %}color:var(--green);background:rgba(0,255,136,0.1){% else %}color:var(--red);background:rgba(255,60,60,0.1){% endif %}">
+                    {{ "FORMAT-POSSIBLE" if vd.get("is_possible") else "NOT POSSIBLE" }}
+                </span>
+                <span class="tag-pill" style="{% if vd.get('is_valid') %}color:var(--green);background:rgba(0,255,136,0.1){% else %}color:var(--yellow);background:rgba(255,170,0,0.1){% endif %}">
+                    {{ "FULLY VALID" if vd.get("is_valid") else "NOT VALID" }}
+                </span>
+            </div>
+            <div class="kv-row"><span class="kv-key">Raw Type</span><span class="kv-val" style="font-family:monospace;font-size:10px">{{ vd.get("raw_type","UNKNOWN") }}</span></div>
+            {% if vd.get("is_possible") and not vd.get("is_valid") %}
+            <div style="font-size:10px;color:var(--yellow);margin-top:6px">⚠ {{ vd.get("note","") }}</div>
+            {% else %}
+            <div style="font-size:10px;color:var(--muted);margin-top:6px">{{ vd.get("note","") }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {# ══ NEW: NUMBER PATTERN ANALYSIS ══ #}
+        {% set pf = ph.get("pattern_flags") %}
+        {% if pf and pf is mapping %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Number Pattern Analysis</div>
+            {% if pf.get("is_sequential") or pf.get("is_repeated_digit") or pf.get("is_telemarketing_range") %}
+                {% for flag in pf.get("flags",[]) %}
+                <div style="font-size:11px;color:var(--yellow);padding:2px 0">⚠ {{ flag }}</div>
+                {% endfor %}
+            {% else %}
+                <div style="font-size:11px;color:var(--green)">✓ No pattern anomalies detected</div>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {% set risk = ph.get("risk") %}
+        {% if risk and risk is mapping %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px">
+                <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">Phone Risk</span>
+                <span class="breach-tag {% if risk.get('level') == 'LOW' %}breach-sev-info{% elif risk.get('level') == 'MEDIUM' %}breach-sev-medium{% else %}breach-sev-high{% endif %}">
+                    {{ risk.get("level","?") }}
+                </span>
+                <span style="color:var(--muted);font-size:10px">{{ risk.get("score",0) }}/100</span>
+            </div>
+            {% for reason in risk.get("reasons", []) %}
+            <div style="font-size:11px;padding:2px 0;color:{% if reason.startswith('✓') %}var(--green){% elif reason.startswith('⚠') %}var(--yellow){% else %}var(--red){% endif %}">
+                {{ reason }}
+            </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+        {% set corr = ph.get("correlation") %}
+        {% if corr and corr is mapping %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:8px">Cross-Correlation</div>
+            <div style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-bottom:4px">
+                <span>CORRELATION CONFIDENCE</span>
+                <span style="color:var(--green)">{{ corr.get("confidence",0) }}% · {{ corr.get("confidence_label","LOW") }}</span>
+            </div>
+            <div class="score-bar" style="margin-bottom:10px">
+                <div class="score-fill" style="width:{{ corr.get('confidence',0) }}%;background:var(--green)"></div>
+            </div>
+            {% if corr.get("usernames") %}
+            <div style="font-size:10px;color:var(--muted);letter-spacing:1px;margin:8px 0 4px">USERNAMES ({{ corr.get("usernames")|length }} found)</div>
+            {% for u in corr.get("usernames",[])[:4] %}
+            <div style="font-size:11px;color:var(--text);padding:2px 0">
+                {{ u.get("name","?") if u is mapping else u }}
+                {% if u is mapping and u.get("url") %} — <a href="{{ u.get('url') }}" target="_blank" style="color:var(--blue);font-size:10px">↗</a>{% endif %}
+            </div>
+            {% endfor %}
+            {% endif %}
+            {% if corr.get("leaks") %}
+            <div style="font-size:10px;color:var(--red);letter-spacing:1px;margin:8px 0 4px">⚠ LEAKS ({{ corr.get("leaks")|length }} found)</div>
+            {% for lk in corr.get("leaks",[])[:3] %}
+            <div style="font-size:11px;color:var(--red);padding:2px 0">{{ lk.get("breach_name") or lk.get("name","?") if lk is mapping else lk }}</div>
+            {% endfor %}
+            {% endif %}
+            {% if not corr.get("usernames") and not corr.get("leaks") %}
+            <p class="no-data" style="color:var(--green)">✓ No cross-correlations found.</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
+        {# ══ SCAM / FRAUD INTELLIGENCE ══ #}
+        {% set scam = ph.get("scam") %}
+        {% if scam and scam.get("available") %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">
+                <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">Scam / Fraud Intelligence</span>
+                <span class="tag-pill" style="{% if scam.get('source') == 'provider' %}color:var(--green);background:rgba(0,255,136,0.1){% else %}color:var(--yellow);background:rgba(255,170,0,0.1){% endif %}">
+                    {{ "PROVIDER DATA" if scam.get("source") == "provider" else "HEURISTIC ESTIMATE" }}
+                </span>
+            </div>
+            {% if scam.get("fraud_score") %}
+            <div class="kv-row">
+                <span class="kv-key">Fraud Score</span>
+                <span class="kv-val" style="color:{% if scam.get('fraud_score') == 'High' %}var(--red){% elif scam.get('fraud_score') == 'Medium' %}var(--yellow){% else %}var(--green){% endif %}">
+                    {{ scam.get("fraud_score") }}
+                </span>
+            </div>
+            {% endif %}
+            {% if scam.get("spam_reports") is not none %}<div class="kv-row"><span class="kv-key">Spam Reports</span><span class="kv-val">{{ scam.get("spam_reports") }}</span></div>{% endif %}
+            {% if scam.get("robocall_reports") is not none %}<div class="kv-row"><span class="kv-key">Robocall Reports</span><span class="kv-val">{{ scam.get("robocall_reports") }}</span></div>{% endif %}
+            {% if scam.get("last_reported") %}<div class="kv-row"><span class="kv-key">Last Reported</span><span class="kv-val">{{ scam.get("last_reported") }}</span></div>{% endif %}
+            {% if scam.get("fraud_score_basis") %}
+            <div style="margin-top:6px">
+                {% for b in scam.get("fraud_score_basis",[]) %}
+                <div style="font-size:10px;color:var(--muted);padding:2px 0">• {{ b }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            <div class="api-error-note" style="margin-top:8px">ℹ {{ scam.get("note") }}</div>
+        </div>
+        {% elif scam %}
+        <div class="api-error-note" style="margin-top:10px">ℹ {{ scam.get("note") }}</div>
+        {% endif %}
+
+        {# ══ VOIP / VIRTUAL NUMBER CHECK ══ #}
+        {% set voip = ph.get("voip") %}
+        {% if voip and voip.get("available") %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">VOIP / Virtual Number Check</div>
+            <span class="tag-pill" style="{% if voip.get('is_voip') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--green);background:rgba(0,255,136,0.1){% endif %}">
+                {{ "LIKELY VOIP" if voip.get("is_voip") else "NOT VOIP" }} · {{ voip.get("confidence","low") | upper }} CONFIDENCE
+            </span>
+            {% if voip.get("matched_provider") %}<div style="font-size:10px;color:var(--muted);margin-top:6px">Matched provider: {{ voip.get("matched_provider") }}</div>{% endif %}
+            <div style="font-size:10px;color:var(--muted);margin-top:4px">{{ voip.get("note","") }}</div>
+        </div>
+        {% endif %}
+
+        {# ══ PORTING HISTORY ══ #}
+        {% set porting = ph.get("porting") %}
+        {% if porting and porting.get("available") %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Porting History</div>
+            <span class="tag-pill" style="{% if porting.get('ported') %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--green);background:rgba(0,255,136,0.1){% endif %}">
+                {{ "PORTED" if porting.get("ported") else "NOT PORTED" }}
+            </span>
+            <div style="font-size:10px;color:var(--muted);margin-top:6px">{{ porting.get("note","") }}</div>
+        </div>
+        {% elif porting %}
+        <div class="api-error-note" style="margin-top:10px">ℹ {{ porting.get("note","Porting history unavailable.") }}</div>
+        {% endif %}
+
+        {# ══ BUSINESS DIRECTORY (only renders if a real match exists) ══ #}
+        {% set biz = ph.get("business") %}
+        {% if biz and biz.get("available") %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Business Directory</div>
+            <div class="kv-row"><span class="kv-key">Name</span><span class="kv-val">{{ biz.get("name","—") }}</span></div>
+            <div class="kv-row"><span class="kv-key">Type</span><span class="kv-val">{{ biz.get("type","—") }}</span></div>
+            <div style="font-size:10px;color:var(--muted);margin-top:6px">Source: {{ biz.get("source","—") }}</div>
+        </div>
+        {% endif %}
+
+        {# ══ REVERSE PHONE OSINT — PUBLIC MENTION SEARCH SUGGESTIONS ══ #}
+        {% set mentions = ph.get("public_mentions") %}
+        {% if mentions %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-bottom:6px">Reverse Phone OSINT</div>
+            <div class="api-error-note" style="margin-bottom:8px">ℹ These are unverified search links, not confirmed matches. Open each and check manually.</div>
+            {% set ns2 = namespace(last_cat="") %}
+            {% for m in mentions %}
+                {% if m.get("category") != ns2.last_cat %}
+                <div style="font-size:9px;color:var(--muted);letter-spacing:1px;text-transform:uppercase;margin:8px 0 4px">{{ m.get("category") }}</div>
+                {% set ns2.last_cat = m.get("category") %}
+                {% endif %}
+                <div class="dork-item">
+                    <span class="dork-desc">{{ m.get("platform","?") }}</span>
+                    <a href="{{ m.get('url') }}" target="_blank" rel="noopener" class="dork-link">Search ↗</a>
+                </div>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        {# ══ INVESTIGATION SUMMARY ══ #}
+        {% set psum = ph.get("summary") %}
+        {% if psum and psum.get("paragraphs") %}
+        <div style="margin-top:14px;padding-top:10px;border-top:1px solid var(--border)">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
+                <span style="font-size:10px;color:var(--muted);letter-spacing:2px;text-transform:uppercase">🧠 Investigation Summary</span>
+                <span class="tag-pill" style="{% if psum.get('confidence') == 'HIGH' %}color:var(--green);background:rgba(0,255,136,0.1){% elif psum.get('confidence') == 'MEDIUM' %}color:var(--yellow);background:rgba(255,170,0,0.1){% else %}color:var(--muted);background:rgba(85,85,85,0.12){% endif %}">
+                    {{ psum.get("confidence") }} CONFIDENCE
+                </span>
+            </div>
+            {% for p in psum.get("paragraphs",[]) %}
+            <p style="font-size:12px;color:var(--text);line-height:1.6;margin-bottom:8px">{{ p }}</p>
+            {% endfor %}
+            {% if psum.get("key_findings") %}
+            <div style="margin-top:8px">
+                {% for f in psum.get("key_findings",[]) %}
+                <div style="font-size:11px;color:var(--text);padding:2px 0">▸ {{ f }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% if psum.get("confidence_note") %}
+            <div style="font-size:10px;color:var(--muted);margin-top:8px">{{ psum.get("confidence_note") }}</div>
+            {% endif %}
+        </div>
+        {% endif %}
+    </div>
+</div>
+{% endif %}
 
         {# ══ IP + GEO ══ #}
         <div class="card">
