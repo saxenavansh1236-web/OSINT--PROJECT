@@ -5,18 +5,6 @@ Two entry points:
   export_report(data, path)            — single scan result → PDF
   export_historical_pdf(report, path)  — dashboard report dict → PDF
                                          (bridges report_dashboard.build_historical_report())
-
-Usage
------
-    from report import export_report, export_historical_pdf
-    from report_dashboard import build_historical_report
-
-    # Single scan
-    export_report(scan_data, "/tmp/scan.pdf")
-
-    # Historical dashboard report
-    report = build_historical_report(days=30)
-    export_historical_pdf(report, "/tmp/history.pdf")
 """
 
 from __future__ import annotations
@@ -164,13 +152,6 @@ def _footer(styles: dict) -> list:
 def export_report(data: dict, output_path: str = "report.pdf") -> str:
     """
     Generate a PDF OSINT report from a single scan result dict.
-
-    Args:
-        data:        Result dict from run_scan() in app.py
-        output_path: Where to save the PDF
-
-    Returns:
-        output_path on success
     """
     styles    = _make_styles()
     story     = []
@@ -227,6 +208,7 @@ def export_report(data: dict, output_path: str = "report.pdf") -> str:
             ("International",  phone.get("international", "—")),
             ("E.164",          phone.get("e164", "—")),
             ("National",       phone.get("national", "—")),
+            ("RFC3966",        phone.get("rfc3966", "—") or "—"),
             ("Country",        phone.get("country_name", "—")),
             ("Region",         phone.get("region", "—") or "—"),
             ("Carrier",        phone.get("carrier_name", "—") or "—"),
@@ -235,6 +217,33 @@ def export_report(data: dict, output_path: str = "report.pdf") -> str:
             ("Confidence",     f"{phone.get('confidence', 0)}% ({phone.get('confidence_label', 'LOW')})"),
         ]
         story.append(_kv_table(rows))
+
+        # ── NEW: Validity Detail (possible vs valid, full type) ──────────
+        vd = phone.get("validity_detail")
+        if isinstance(vd, dict):
+            story.append(Paragraph("Number Validity Detail", styles["subsection"]))
+            story.append(_kv_table([
+                ("Format-Possible",  "Yes" if vd.get("is_possible") else "No"),
+                ("Fully Valid",      "Yes" if vd.get("is_valid") else "No"),
+                ("Possible Reason",  vd.get("possible_reason", "—")),
+                ("Raw Type",         vd.get("raw_type", "UNKNOWN")),
+                ("Note",             vd.get("note", "—")),
+            ]))
+
+        # ── NEW: Pattern Flags (sequential/repeated/telemarketing) ───────
+        pf = phone.get("pattern_flags")
+        if isinstance(pf, dict):
+            story.append(Paragraph("Number Pattern Analysis", styles["subsection"]))
+            rows = [
+                ("Sequential Digits",     "Yes" if pf.get("is_sequential") else "No"),
+                ("Repeated Digits",       "Yes" if pf.get("is_repeated_digit") else "No"),
+                ("Telemarketing Range",   "Yes" if pf.get("is_telemarketing_range") else "No"),
+            ]
+            if pf.get("matched_prefix"):
+                rows.append(("Matched Prefix", pf.get("matched_prefix")))
+            if pf.get("flags"):
+                rows.append(("Findings", pf.get("flags")))
+            story.append(_kv_table(rows))
 
         risk = phone.get("risk")
         if isinstance(risk, dict):
@@ -257,14 +266,47 @@ def export_report(data: dict, output_path: str = "report.pdf") -> str:
                 ("Note",   whatsapp.get("note", "—")),
             ]))
 
-        spam = phone.get("spam")
-        if isinstance(spam, dict):
-            story.append(Paragraph("Spam Reputation", styles["subsection"]))
-            story.append(_kv_table([
-                ("Available", "Yes" if spam.get("available") else "No"),
-                ("Reports",   spam.get("reports", 0)),
-                ("Note",      spam.get("note", "—")),
-            ]))
+        # ── FIXED: was reading phone.get("spam") — the real key is "scam" ──
+        scam = phone.get("scam")
+        if isinstance(scam, dict) and scam.get("available"):
+            story.append(Paragraph("Scam / Fraud Intelligence", styles["subsection"]))
+            rows = [
+                ("Source",           "Provider Data" if scam.get("source") == "provider" else "Heuristic Estimate"),
+                ("Fraud Score",      scam.get("fraud_score", "—")),
+            ]
+            if scam.get("spam_reports") is not None:
+                rows.append(("Spam Reports", scam.get("spam_reports")))
+            if scam.get("robocall_reports") is not None:
+                rows.append(("Robocall Reports", scam.get("robocall_reports")))
+            if scam.get("last_reported"):
+                rows.append(("Last Reported", scam.get("last_reported")))
+            if scam.get("fraud_score_basis"):
+                rows.append(("Basis", scam.get("fraud_score_basis")))
+            rows.append(("Note", scam.get("note", "—")))
+            story.append(_kv_table(rows))
+
+        # ── NEW: VOIP / Virtual Number Check ──────────────────────────────
+        voip = phone.get("voip")
+        if isinstance(voip, dict) and voip.get("available"):
+            story.append(Paragraph("VOIP / Virtual Number Check", styles["subsection"]))
+            rows = [
+                ("Is VOIP",    "Yes" if voip.get("is_voip") else "No"),
+                ("Confidence", voip.get("confidence", "—")),
+            ]
+            if voip.get("matched_provider"):
+                rows.append(("Matched Provider", voip.get("matched_provider")))
+            rows.append(("Note", voip.get("note", "—")))
+            story.append(_kv_table(rows))
+
+        # ── NEW: Porting History ──────────────────────────────────────────
+        porting = phone.get("porting")
+        if isinstance(porting, dict):
+            story.append(Paragraph("Porting History", styles["subsection"]))
+            rows = []
+            if porting.get("available"):
+                rows.append(("Ported", "Yes" if porting.get("ported") else "No"))
+            rows.append(("Note", porting.get("note", "—")))
+            story.append(_kv_table(rows))
 
         business = phone.get("business")
         if isinstance(business, dict):
@@ -292,6 +334,29 @@ def export_report(data: dict, output_path: str = "report.pdf") -> str:
                     (l.get("breach_name") or l.get("name") if isinstance(l, dict) else l) for l in leaks
                 ]))
             story.append(_kv_table(rows))
+
+        # ── NEW: Reverse Phone OSINT (search suggestions) ─────────────────
+        mentions = phone.get("public_mentions")
+        if isinstance(mentions, list) and mentions:
+            story.append(Paragraph("Reverse Phone OSINT — Search Suggestions", styles["subsection"]))
+            story.append(_kv_table([
+                (m.get("category", "Search"), f"{m.get('platform','?')} — {m.get('url','')}")
+                for m in mentions
+            ]))
+
+        # ── NEW: Investigation Summary paragraphs ─────────────────────────
+        psum = phone.get("summary")
+        if isinstance(psum, dict) and psum.get("paragraphs"):
+            story.append(Paragraph("Phone Investigation Summary", styles["subsection"]))
+            for p in psum.get("paragraphs", []):
+                story.append(Paragraph(p, styles["body"]))
+            if psum.get("key_findings"):
+                story.append(Spacer(1, 4))
+                story.append(_kv_table([
+                    ("Confidence", psum.get("confidence", "LOW")),
+                    ("Key Findings", psum.get("key_findings", [])),
+                ]))
+
     elif isinstance(phone, dict) and phone.get("error"):
         story.append(Paragraph("Phone Intelligence", styles["section"]))
         story.append(_kv_table([("Error", phone.get("error"))]))
@@ -397,21 +462,6 @@ def export_historical_pdf(
     """
     Generate a PDF from the structured dict returned by
     report_dashboard.build_historical_report().
-
-    Args:
-        report:      Dict from build_historical_report(). If None, it is
-                     called automatically with *days*.
-        output_path: Where to save the PDF.
-        days:        Only used when *report* is None.
-
-    Returns:
-        output_path on success.
-
-    Example:
-        from report_dashboard import build_historical_report
-        from report import export_historical_pdf
-
-        pdf = export_historical_pdf(build_historical_report(30), "/tmp/history.pdf")
     """
     if report is None:
         from report_dashboard import build_historical_report
@@ -422,13 +472,11 @@ def export_historical_pdf(
     generated = report.get("generated", datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"))
     period    = report.get("period", f"Last {days} days")
 
-    # ── Title ────────────────────────────────────────────────────────────────
     story.append(Paragraph("OSINT Platform — Historical Report", styles["title"]))
     story.append(Paragraph(f"{period}  |  Generated: {generated}", styles["subtitle"]))
     story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#16213e")))
     story.append(Spacer(1, 12))
 
-    # ── Overview stats ────────────────────────────────────────────────────────
     overview = report.get("overview", {})
     if overview:
         story.append(Paragraph("Overview Statistics", styles["section"]))
@@ -446,7 +494,6 @@ def export_historical_pdf(
             ("Alerts Failed",       overview.get("alerts_failed", 0)),
         ]))
 
-    # ── Top targets ───────────────────────────────────────────────────────────
     top = report.get("top_targets", [])
     if top:
         story.append(Paragraph("Top Scanned Targets", styles["section"]))
@@ -455,7 +502,6 @@ def export_historical_pdf(
             [[t["target"], t["count"], "Yes" if t.get("flagged") else "No"] for t in top],
         ))
 
-    # ── Recent scans ──────────────────────────────────────────────────────────
     recent = report.get("recent_scans", [])
     if recent:
         story.append(Paragraph("Recent Scans", styles["section"]))
@@ -466,13 +512,11 @@ def export_historical_pdf(
              for s in recent],
         ))
 
-    # ── Scan type distribution ────────────────────────────────────────────────
     dist = report.get("scan_type_distribution", {})
     if dist:
         story.append(Paragraph("Scan Type Distribution", styles["section"]))
         story.append(_kv_table(list(dist.items())))
 
-    # ── Case stats ────────────────────────────────────────────────────────────
     cases = report.get("case_stats", {})
     if cases:
         story.append(Paragraph("Case Statistics", styles["section"]))
@@ -481,7 +525,6 @@ def export_historical_pdf(
         rows += [(f"Priority: {k}", v) for k, v in cases.get("by_priority", {}).items()]
         story.append(_kv_table(rows))
 
-    # ── Alert stats ───────────────────────────────────────────────────────────
     alerts = report.get("alert_stats", {})
     if alerts:
         story.append(Paragraph("Alert Statistics", styles["section"]))
@@ -494,7 +537,6 @@ def export_historical_pdf(
         rows += [(f"Severity: {k}", v) for k, v in alerts.get("by_severity", {}).items()]
         story.append(_kv_table(rows))
 
-    # ── Recent alerts ─────────────────────────────────────────────────────────
     recent_alerts = report.get("recent_alerts", [])
     if recent_alerts:
         story.append(Paragraph("Recent Alerts", styles["section"]))
@@ -506,7 +548,6 @@ def export_historical_pdf(
              for a in recent_alerts],
         ))
 
-    # ── Scheduled targets ─────────────────────────────────────────────────────
     scheduled = report.get("scheduled_overview", [])
     if scheduled:
         story.append(Paragraph("Scheduled Targets", styles["section"]))
