@@ -10,6 +10,7 @@ from functools import wraps
 from werkzeug.utils import secure_filename
 from datetime import datetime, timedelta
 from collections import Counter
+from modules.image_intel import hidden_data_extractor
 
 from flask import (
     Flask, render_template, request, send_file,
@@ -400,6 +401,25 @@ try:
 except ImportError:
     _HAS_SIMILARITY = False
 
+# ── NEW: Timeline + AI Summary for Image Intelligence ────────────────────
+try:
+    from modules.image_intel.timeline_extractor import extract as timeline_extract
+    _HAS_IMG_TIMELINE = True
+except ImportError:
+    _HAS_IMG_TIMELINE = False
+
+try:
+    from modules.image_intel.ai_summary import build_image_summary
+    _HAS_IMG_AI_SUMMARY = True
+except ImportError:
+    _HAS_IMG_AI_SUMMARY = False
+
+try:
+    from modules.image_intel.camera_fingerprint import analyze as camera_fingerprint_analyze
+    _HAS_CAMERA_FINGERPRINT = True
+except ImportError:
+    _HAS_CAMERA_FINGERPRINT = False
+
 # ==========================
 # APP SETUP
 # ==========================
@@ -417,17 +437,6 @@ app.register_blueprint(auth_bp)
 if _HAS_INVESTIGATION_SUMMARY:
     app.register_blueprint(investigation_dashboard_bp)
 
-# ──────────────────────────────────────────────────────────────────────────
-# FIX: create the database tables at import time, not just under
-# `if __name__ == "__main__":`. Production servers (gunicorn, Render, etc.)
-# import this module as `app:app` and never execute the __main__ block, so
-# db.create_all() previously never ran in production — causing
-# "sqlalchemy.exc.OperationalError: no such table: user" on /register,
-# /login, and anywhere else the User/History/AuditLog tables are queried.
-#
-# db.create_all() is idempotent (it only creates tables that don't already
-# exist), so it's always safe to call here on every startup.
-# ──────────────────────────────────────────────────────────────────────────
 with app.app_context():
     db.create_all()
 
@@ -435,8 +444,6 @@ _SCHEDULER_STARTED = False
 
 
 def _start_scheduler_once():
-    """Start the background scheduler exactly once, regardless of whether
-    the app is launched via `python app.py` or a WSGI server like gunicorn."""
     global _SCHEDULER_STARTED
     if _SCHEDULER_STARTED:
         return
@@ -445,8 +452,6 @@ def _start_scheduler_once():
             init_scheduler(app, monitored_scan(run_osint_scan))
             _SCHEDULER_STARTED = True
         except NameError:
-            # run_osint_scan not yet defined at this point in the module —
-            # scheduler will be started later from __main__ instead.
             pass
         except Exception as e:
             print(f"[Scheduler Init Error] {e}")
@@ -621,10 +626,6 @@ def write_audit(action: str, detail: str = ""):
 # ==========================
 # PUBLIC USER AUTH (scanner access)
 # ==========================
-# Separate from the admin session (`session["admin"]`). This gate protects
-# the public scanner (`/`) and Image OSINT (`/image-osint`) pages so only
-# registered accounts can run scans. Admins still log in separately at
-# `/admin` and are unaffected by this system.
 
 def login_required(view_func):
     @wraps(view_func)
@@ -1076,8 +1077,6 @@ def run_osint_scan(target: str) -> dict:
     return result
 
 
-# Now that run_osint_scan exists, it's safe to (re)try starting the
-# scheduler if it wasn't already started above.
 _start_scheduler_once()
 
 
@@ -1235,7 +1234,6 @@ def history():
         print(f"[History Error] {e}")
         data = []
 
-    # ── Image OSINT scans (logged to AuditLog, not History) ──────────────
     image_scans = []
     try:
         logs = (
@@ -1248,8 +1246,6 @@ def history():
             detail = log.detail or ""
             filename = detail.replace("file=", "").strip() if "file=" in detail else (detail or "unknown")
 
-            # AuditLog's timestamp column name can vary by schema — try the
-            # common options in order rather than assuming one exact name.
             scanned_at = None
             for attr in ("timestamp", "created_at", "logged_at", "created", "ts"):
                 if hasattr(log, attr):
@@ -1617,12 +1613,6 @@ def dashboard():
         failed_login_count  = 0
         success_login_count = 0
 
-    # ── Recent Image OSINT scans (logged to AuditLog, not History) ───────
-    # Image OSINT scans never write to the History table, so they were
-    # previously invisible everywhere on this dashboard except the
-    # `total_image_scans` count above (which itself wasn't being rendered
-    # in the template). This pulls the most recent image scans from
-    # AuditLog so the dashboard can show them explicitly.
     recent_image_scans = []
     try:
         img_logs = (
@@ -1635,8 +1625,6 @@ def dashboard():
             detail = log.detail or ""
             filename = detail.replace("file=", "").strip() if "file=" in detail else (detail or "unknown")
 
-            # AuditLog's timestamp column name can vary by schema — try the
-            # common options in order rather than assuming one exact name.
             scanned_at = None
             for attr in ("timestamp", "created_at", "logged_at", "created", "ts"):
                 if hasattr(log, attr):
@@ -2065,7 +2053,6 @@ def evidence_upload(case_id):
 @app.route("/cases/<int:case_id>/evidence/note", methods=["POST"])
 @sensitive_limit
 def evidence_add_note(case_id):
-    """Store a free-text investigator note as evidence (Evidence Collection feature)."""
     guard = admin_required()
     if guard:
         return guard
@@ -2166,7 +2153,6 @@ def case_timeline(case_id):
 
 @app.route("/cases/<int:case_id>/correlation")
 def case_correlation(case_id):
-    """Cross-Case Correlation view for a single case."""
     guard = admin_required()
     if guard:
         return guard
@@ -2464,14 +2450,7 @@ def case_intelligence(case_id):
 
 
 # ==========================
-# IMAGE OSINT (single, consolidated route — includes full Image
-# Intelligence Suite: EXIF metadata, hashing, duplicate detection,
-# QR/barcode, OCR, object detection, face detection, landmark
-# detection, reverse image search links, GPS extraction, metadata
-# risk scoring, AI captioning, AI-generated detection, ELA forgery
-# detection, face attributes, image quality, color palette, logo
-# detection, vehicle detection, license plate OCR, similarity search)
-# Requires login — same public account system as the scanner.
+# IMAGE OSINT (single, consolidated route)
 # ==========================
 
 @app.route("/image-osint", methods=["GET", "POST"])
@@ -2535,10 +2514,17 @@ def image_osint():
             except (json.JSONDecodeError, IndexError):
                 metadata = {}
 
+            # Hidden vendor-embedded segment detection (e.g. OPPO/OnePlus
+            # src.image / rear.depth blobs hidden inside JSONInfo) — computed
+            # once here so it feeds both its own results card AND the
+            # Metadata Risk score below. Uses `metadata` (the parsed EXIF
+            # dict), never the undefined `exif_data` name.
+            try:
+                hidden_data_result = hidden_data_extractor.extract_hidden_segments(metadata)
+            except Exception as e:
+                hidden_data_result = {"available": False, "reason": f"extraction failed: {e}"}
+
             # ── Image Intelligence Suite ─────────────────────────────────
-            # Each feature degrades gracefully — a missing dependency or a
-            # failed model call never blocks the other features or the
-            # original EXIF result.
             image_intel = {}
 
             # 1. Image Hashing (MD5 / SHA256 / pHash / dHash / aHash / wHash)
@@ -2579,7 +2565,7 @@ def image_osint():
                 except Exception as e:
                     image_intel["objects"] = {"available": False, "error": str(e)}
 
-            # 6. Face Detection (detection only — no recognition/identification)
+            # 6. Face Detection
             if _HAS_FACE_DETECTION:
                 try:
                     image_intel["faces"] = face_detect(filepath).to_dict()
@@ -2607,42 +2593,59 @@ def image_osint():
                 except Exception as e:
                     image_intel["gps"] = {"available": False, "error": str(e)}
 
-            # 10. Metadata Privacy Risk Scoring
+            # 9b. Hidden Embedded Data (already computed above)
+            image_intel["hidden_data"] = hidden_data_result
+
+            # 10. Metadata Privacy Risk Scoring — now also fed the hidden
+            # embedded-data finding so it factors into the overall score.
             if _HAS_METADATA_RISK:
                 try:
-                    image_intel["metadata_risk"] = metadata_risk_assess(metadata).to_dict()
+                    image_intel["metadata_risk"] = metadata_risk_assess(metadata, hidden_data_result).to_dict()
                 except Exception as e:
                     image_intel["metadata_risk"] = {"available": False, "error": str(e)}
 
-            # 11. AI Image Caption (requires ENABLE_LOCAL_CAPTION_MODEL=true)
+            # 11. AI Image Caption
             if _HAS_CAPTION:
                 try:
                     image_intel["caption"] = ai_caption(filepath).to_dict()
                 except Exception as e:
                     image_intel["caption"] = {"available": False, "error": str(e)}
 
-            # 12. AI-Generated Image Detection (requires AI_DETECTOR_API_KEY)
+            # 12. AI-Generated Image Detection
             if _HAS_AI_GENERATED:
                 try:
                     image_intel["ai_generated"] = ai_generated_detect(filepath).to_dict()
                 except Exception as e:
                     image_intel["ai_generated"] = {"available": False, "error": str(e)}
 
-            # 13. ELA / Forgery Detection
+            # 13. ELA / Copy-Move / JPEG Block — Forgery Detection Suite
             if _HAS_FORGERY:
                 try:
                     image_intel["forgery"] = forgery_analyze(filepath).to_dict()
                 except Exception as e:
                     image_intel["forgery"] = {"available": False, "error": str(e)}
 
-            # 14. Face Attributes (age/emotion — requires deepface)
+            # 13b. Timeline (Created / Modified / Age / Timezone / Shared-honest-label)
+            if _HAS_IMG_TIMELINE:
+                try:
+                    image_intel["timeline"] = timeline_extract(metadata).to_dict()
+                except Exception as e:
+                    image_intel["timeline"] = {"available": False, "error": str(e)}
+            # 13c. Camera Sensor Fingerprinting (noise consistency heuristic)
+            if _HAS_CAMERA_FINGERPRINT:
+                try:
+                    image_intel["camera_fingerprint"] = camera_fingerprint_analyze(filepath).to_dict()
+                except Exception as e:
+                    image_intel["camera_fingerprint"] = {"available": False, "error": str(e)}
+                    
+            # 14. Face Attributes (Age, Gender, Emotion, Glasses, Mask, Eyes Open)
             if _HAS_FACE_ATTRS:
                 try:
                     image_intel["face_attributes"] = face_attrs_analyze(filepath).to_dict()
                 except Exception as e:
                     image_intel["face_attributes"] = {"available": False, "error": str(e)}
 
-            # 15. Image Quality Analysis (sharpness/brightness/noise)
+            # 15. Image Quality Analysis
             if _HAS_QUALITY:
                 try:
                     image_intel["quality"] = quality_analyze(filepath).to_dict()
@@ -2656,14 +2659,14 @@ def image_osint():
                 except Exception as e:
                     image_intel["color_palette"] = {"available": False, "error": str(e)}
 
-            # 17. Logo & Brand Detection (requires GOOGLE_VISION_API_KEY)
+            # 17. Logo & Brand Detection
             if _HAS_LOGOS:
                 try:
                     image_intel["logos"] = logo_detect(filepath).to_dict()
                 except Exception as e:
                     image_intel["logos"] = {"available": False, "error": str(e)}
 
-            # 18. Vehicle Make/Model Detection (requires VEHICLE_MODEL_PATH)
+            # 18. Vehicle Make/Model Detection
             if _HAS_VEHICLE:
                 try:
                     image_intel["vehicle"] = vehicle_detect(filepath).to_dict()
@@ -2677,7 +2680,7 @@ def image_osint():
                 except Exception as e:
                     image_intel["license_plate"] = {"available": False, "error": str(e)}
 
-            # 20. Similarity Search (ranked near-duplicate lookup, needs hashes)
+            # 20. Similarity Search
             if _HAS_SIMILARITY and hash_result and hash_result.available:
                 try:
                     image_intel["similarity_search"] = similarity_search(
@@ -2685,6 +2688,16 @@ def image_osint():
                     ).to_dict()
                 except Exception as e:
                     image_intel["similarity_search"] = {"available": False, "error": str(e)}
+
+            # 21. AI Summary — ONE-CLICK consolidated summary of everything
+            # above (Investigation Summary, Risk, Camera, Hidden Metadata,
+            # Objects, OCR, Recommendation). Must run LAST since it reads
+            # from image_intel.
+            if _HAS_IMG_AI_SUMMARY:
+                try:
+                    image_intel["ai_summary"] = build_image_summary(metadata, image_intel).to_dict()
+                except Exception as e:
+                    image_intel["ai_summary"] = {"available": False, "error": str(e)}
 
             write_audit("image_osint_scan", f"file={safe_name}")
             return render_template(
@@ -2714,10 +2727,6 @@ def image_osint():
 
 
 if __name__ == "__main__":
-    # Tables are already created above at import time; this block now only
-    # needs to ensure the scheduler is running (in case run_osint_scan
-    # wasn't defined yet when _start_scheduler_once() first ran — it always
-    # is by this point) and to start Flask's dev server for local runs.
     _start_scheduler_once()
 
     app.run(
